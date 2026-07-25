@@ -1,0 +1,259 @@
+# Mantenimiento Industrial — Guía de instalación y APK
+
+Esta app tiene: login por técnico, tablero de tareas en tiempo real, y fotos de
+máquinas/averías guardadas en la nube. Está lista para convertirse en un APK
+instalable en Android.
+
+---
+
+## 🔵 MÉTODO SIN ORDENADOR — compilar el APK desde el móvil con GitHub Actions
+
+Este proyecto incluye un archivo `.github/workflows/build-apk.yml` que hace que
+**GitHub compile el APK por ti en la nube**. Tú solo subes el código desde el
+teléfono y descargas el `.apk` ya terminado. No necesitas Android Studio.
+
+### Paso 1 — Completa primero la Parte 1 de abajo (Firebase)
+Eso sí es necesario y se hace igual desde el navegador del móvil
+(console.firebase.google.com funciona bien en Chrome de Android).
+Recuerda pegar tu `firebaseConfig` en `src/firebase.js` **antes** de subir el
+código a GitHub.
+
+### Paso 2 — Crea una cuenta y un repositorio en GitHub
+1. Ve a https://github.com desde el navegador del móvil y crea una cuenta (gratis).
+2. Pulsa **+** → **New repository**. Nómbralo, por ejemplo, `mantenimiento-industrial`.
+   Puede ser privado.
+
+### Paso 3 — Sube el proyecto
+La forma más fiable desde el móvil:
+1. En tu teléfono, descomprime el `app-mantenimiento.zip` con la app de Archivos.
+2. En tu navegador (activa "Sitio de escritorio" en el menú del navegador para
+   que se vea la página completa), entra a tu repositorio → **Add file → Upload files**.
+3. Selecciona **todos los archivos y carpetas** descomprimidos (tu explorador de
+   archivos debería permitir elegir la carpeta completa). Confirma y haz commit.
+
+   Si tu navegador no te deja subir carpetas enteras y solo archivos sueltos,
+   usa la alternativa: entra a **Add file → Create new file** y en el nombre
+   escribe la ruta completa (ej. `src/App.jsx`), pega el contenido de ese
+   archivo, y repite para cada uno. Son 10 archivos en total — tedioso pero
+   garantizado que funciona.
+
+### Paso 4 — Deja que GitHub compile
+En cuanto subas los archivos (incluido `.github/workflows/build-apk.yml`),
+GitHub arrancará la compilación solo. Para verlo:
+1. Entra a la pestaña **Actions** de tu repositorio.
+2. Verás "Compilar APK" ejecutándose (tarda 3-5 minutos).
+3. Cuando termine (✅ verde), entra a esa ejecución y baja hasta **Artifacts**.
+4. Descarga `app-mantenimiento-apk` — es un `.zip` que contiene el `.apk`.
+
+### Paso 5 — Instalar en el móvil
+1. Descomprime ese zip para sacar el `.apk`.
+2. Ajustes → Seguridad → permite instalar apps de origen desconocido.
+3. Abre el `.apk` descargado y pulsa Instalar.
+4. Repite la descarga en los móviles de los otros técnicos (o compárteles el `.apk` por WhatsApp/Drive).
+
+> Nota: este método genera un APK de tipo "debug", perfecto para instalar
+> directamente en los 15 móviles sin pasar por Google Play. Si más adelante
+> quieres publicarlo en Play Store, ese paso sí requiere una firma de
+> "release" — se puede automatizar también, pero es un paso extra.
+
+---
+
+## Parte 1 — Crear el backend en Firebase (gratis, ~15 min)
+
+1. Ve a https://console.firebase.google.com y crea un proyecto nuevo (ej. "mantenimiento-planta").
+2. **Authentication**: en el menú lateral, entra a *Authentication* → pestaña *Sign-in method* →
+   activa **Correo electrónico/contraseña**.
+3. Crea a tus 15 técnicos: *Authentication* → *Users* → *Add user*, uno por uno
+   (correo + contraseña temporal que ellos podrán cambiar luego).
+4. **Firestore**: menú lateral → *Firestore Database* → *Crear base de datos* →
+   modo producción → elige la región más cercana a tu planta.
+5. **Storage**: menú lateral → *Storage* → *Comenzar* → acepta las reglas por defecto
+   (las sustituiremos por las tuyas en el paso 7).
+6. Ve a *Configuración del proyecto* (el engranaje) → baja a "Tus apps" → pulsa
+   el icono `</>` (Web) → dale un nombre → copia el objeto `firebaseConfig` que
+   te muestra.
+7. Pega ese objeto en `src/firebase.js`, reemplazando los valores de ejemplo.
+8. Sube las reglas de seguridad incluidas en este proyecto:
+   - En *Firestore Database* → pestaña *Reglas*, pega el contenido de `firestore.rules`.
+   - En *Storage* → pestaña *Reglas*, pega el contenido de `storage.rules`.
+   - Publica ambas.
+
+Con esto, solo tus técnicos logueados pueden leer y escribir tareas y fotos.
+
+---
+
+## Parte 2 — Probar la app en el navegador
+
+Necesitas [Node.js](https://nodejs.org) instalado (versión 18 o superior).
+
+```bash
+cd app-mantenimiento
+npm install
+npm run dev
+```
+
+Abre la URL que te muestra (normalmente `http://localhost:5173`) y prueba
+iniciar sesión con uno de los usuarios que creaste.
+
+---
+
+## Parte 3 — Generar el APK con Capacitor
+
+1. Instala Android Studio: https://developer.android.com/studio (necesario para compilar).
+2. Genera la versión de producción de la app:
+   ```bash
+   npm run build
+   ```
+3. Inicializa Capacitor (solo la primera vez):
+   ```bash
+   npx cap init "Mantenimiento Industrial" "com.tuempresa.mantenimiento" --web-dir=dist
+   ```
+4. Añade la plataforma Android:
+   ```bash
+   npm run cap:add
+   ```
+5. Sincroniza el build web con el proyecto Android (repite esto cada vez que cambies código):
+   ```bash
+   npm run cap:sync
+   ```
+6. Abre el proyecto en Android Studio:
+   ```bash
+   npm run cap:open
+   ```
+7. En Android Studio: menú **Build → Generate Signed Bundle / APK** → elige **APK** →
+   crea una "keystore" nueva (guárdala bien, la necesitarás para futuras actualizaciones) →
+   completa el asistente → Android Studio te dejará el archivo `.apk` en
+   `android/app/release/`.
+
+---
+
+## Parte 4 — Instalar en los móviles de los técnicos
+
+- Copia el `.apk` a cada teléfono (por USB, Drive, WhatsApp, etc.).
+- En el móvil: *Ajustes → Seguridad → Permitir instalar apps de origen desconocido*
+  (el texto exacto varía según el fabricante).
+- Abre el archivo `.apk` descargado y pulsa **Instalar**.
+
+Si más adelante quieres evitar este paso manual y que las actualizaciones
+lleguen solas, puedes subir la app a Google Play como **app privada/interna**
+de tu organización (requiere cuenta de desarrollador de Google, pago único).
+
+---
+
+## Permisos de cámara en Android
+
+Capacitor necesita permiso de cámara para que el botón de subir fotos funcione
+bien en el móvil. Después de `npx cap add android`, abre
+`android/app/src/main/AndroidManifest.xml` y confirma que incluya:
+
+```xml
+<uses-permission android:name="android.permission.CAMERA" />
+<uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+```
+
+Si no aparecen, añádelos justo antes de `<application ...>`.
+
+---
+
+## Resumen de qué guarda cada cosa
+
+| Dato | Dónde vive |
+|---|---|
+| Login de los 15 técnicos | Firebase Authentication |
+| Tareas (máquina, prioridad, estado, técnico, fecha) | Firestore, en tiempo real |
+| Fotos de máquinas/averías | Firebase Storage (comprimidas antes de subir) |
+
+Todo el plan gratuito de Firebase ("Spark") cubre perfectamente 15 usuarios y
+un volumen normal de tareas y fotos.
+
+---
+
+## Novedades: Materiales, Producción y Calidad
+
+La app ahora tiene 4 pestañas: **Mantenimiento**, **Materiales**, **Producción** y **Calidad**.
+
+- **Materiales**: inventario de repuestos/consumibles con stock actual, stock mínimo, ubicación en almacén y botones rápidos +/- para ajustar stock. Se marca en rojo lo que está bajo mínimo.
+- **Producción**: órdenes de producción por línea y turno, con objetivo, producido, rechazo, barra de avance y una tarjeta de eficiencia del día.
+- **Calidad**: incidencias/no conformidades con tipo, severidad, referencia (lote, línea, orden), fotos y acción correctiva.
+
+**Importante:** como se añadieron 3 colecciones nuevas en Firestore (`materials`, `production_orders`, `quality_issues`) y una ruta nueva en Storage (`quality/`), debes volver a publicar las reglas:
+
+1. *Firestore Database* → pestaña *Reglas* → pega el contenido actualizado de `firestore.rules` → Publicar.
+2. *Storage* → pestaña *Reglas* → pega el contenido actualizado de `storage.rules` → Publicar.
+
+No hace falta crear nada más a mano: las colecciones se crean solas la primera vez que guardas un material, una orden de producción o una incidencia.
+
+---
+
+## ⚠️ Modo prueba (sin usuarios todavía)
+
+Mientras terminas de configurar Firebase, la app está en **modo prueba**:
+se salta el login y las reglas de Firestore/Storage están abiertas (cualquiera
+con el enlace podría leer/escribir datos). Esto es solo para que puedas probar
+la app sin crear usuarios aún.
+
+**Necesitas igualmente:**
+- Un proyecto de Firebase creado, con Firestore Database y Storage activados.
+- Pegar tu `firebaseConfig` en `src/firebase.js`.
+- Subir las reglas de `firestore.rules` y `storage.rules` (las que están en modo prueba).
+
+**Antes de dar la app a tus técnicos con datos reales:**
+1. Crea sus cuentas en *Authentication → Users*.
+2. En `src/App.jsx`, cambia `const DEV_MODE = true;` por `const DEV_MODE = false;`.
+3. En `firestore.rules` y `storage.rules`, cambia cada `allow read, write: if true;`
+   por `allow read, write: if request.auth != null;` y vuelve a publicar ambas.
+4. Vuelve a subir el código a GitHub para que se genere un nuevo APK.
+
+---
+
+## Trazabilidad, cliente y resumen (Mixpak System)
+
+- **Materiales**: ahora tiene lote y fecha de caducidad, con aviso si está caducado o caduca en menos de 30 días. Nueva categoría "Formato de envase" (film/sachet/stick/doypack).
+- **Producción**: cada orden tiene Cliente y Lote, además de línea/turno.
+- **Calidad**: cada incidencia se puede vincular a Cliente y Lote, para relacionarla directamente con una orden de producción.
+- **Resumen** (nueva primera pestaña): un vistazo rápido a los 4 módulos — pendientes/críticas de mantenimiento, materiales bajo mínimo o caducando, producción y eficiencia de hoy, e incidencias de calidad abiertas. Toca el título de cada bloque para ir directo a ese módulo.
+- La marca de la app ahora dice "Mixpak System" en el login y en la cabecera.
+
+---
+
+## Categorías / roles por persona
+
+La primera vez que alguien entra, la app le pide elegir su categoría:
+**Mecánico** (solo ve Mantenimiento), **Calidad** (solo Calidad), **Producción**
+(solo Producción), **Almacén** (solo Materiales) o **Supervisor** (ve todo).
+Esa elección se guarda en Firestore (colección `team`) y a partir de ahí solo
+ve las pestañas que le tocan, tanto en el menú como en el Resumen.
+
+Puede cambiar su categoría en cualquier momento con el botón "Cambiar categoría"
+de la cabecera (por ejemplo, si un mecánico también hace de supervisor).
+
+**Nota:** en modo prueba, como todos entráis como el mismo usuario "de prueba",
+compartiréis una sola categoría. Cuando actives usuarios reales (`DEV_MODE = false`
+y cuentas en Authentication), cada persona tendrá su propia categoría porque
+cada una tiene su propio inicio de sesión.
+
+## Basado en mixpaksystem.com
+
+Se añadieron dos tipos de incidencia de Calidad que corresponden a servicios que
+ofrecéis: **Control de estabilidad / envejecimiento** y **Compatibilidad de
+materiales**. Si tenéis más actividades que no estén reflejadas en la app
+(formulación, I+D+I…), decidme y seguimos ampliando.
+
+---
+
+## Si las fotos se quedan en "Guardando…" sin terminar
+
+Ahora, si subir una foto tarda más de 20 segundos o falla, verás un mensaje de
+error claro (la orden/incidencia sí se guarda, solo falla la foto). Si ves ese
+mensaje, revisa esto en Firebase:
+
+1. **Storage → ¿está activado?** Si nunca pulsaste "Comenzar" en la sección
+   Storage del panel de Firebase, actívalo ahora.
+2. **Storage → Reglas** → confirma que pegaste el contenido de `storage.rules`
+   de este proyecto y le diste a Publicar.
+3. En `src/firebase.js`, revisa que `storageBucket` no esté vacío ni sea el
+   de ejemplo.
+
+Sin estos tres pasos, las fotos nunca podrán subirse aunque el resto de la
+app (tareas, materiales, etc.) funcione perfectamente, porque esos datos
+viven en Firestore, no en Storage.
