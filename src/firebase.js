@@ -7,13 +7,41 @@ import { getStorage } from "firebase/storage";
 // 2. En "Tus apps", crea una app Web (icono </>)
 // 3. Copia aquí el objeto firebaseConfig que te da Firebase
 const firebaseConfig = {
-  apiKey: "PEGA_AQUI_TU_API_KEY",
-  authDomain: "TU_PROYECTO.firebaseapp.com",
-  projectId: "TU_PROYECTO",
-  storageBucket: "TU_PROYECTO.appspot.com",
-  messagingSenderId: "TU_SENDER_ID",
-  appId: "TU_APP_ID",
+
+
+
+
+  "project_info": {
+    "project_number": "552046543093",
+    "project_id": "mixpak-system",
+    "storage_bucket": "mixpak-system.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:552046543093:android:aa99868cd186dd7c9685bc",
+        "android_client_info": {
+          "package_name": "com.tuempresa.mantenimiento"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBBSKwL1FMTOo0m62SrvnOObHeK3rR68Ys"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
 };
+
+
 
 const app = initializeApp(firebaseConfig);
 
