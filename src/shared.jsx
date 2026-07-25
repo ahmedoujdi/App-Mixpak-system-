@@ -45,6 +45,15 @@ export function compressImage(file, maxSize = 1280, quality = 0.75) {
   });
 }
 
+// Evita que la app se quede colgada para siempre si Storage no responde
+// (por ejemplo, si Storage no está activado en el proyecto de Firebase).
+export function withTimeout(promise, ms, message) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => setTimeout(() => reject(new Error(message)), ms)),
+  ]);
+}
+
 export function CenteredMessage({ text }) {
   return (
     <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: COLORS.bg, fontFamily: "'IBM Plex Sans', sans-serif" }}>

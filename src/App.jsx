@@ -35,6 +35,7 @@ export default function App() {
   const [user, setUser] = useState(null);
   const [authLoading, setAuthLoading] = useState(!DEV_MODE);
   const [role, setRole] = useState(undefined); // undefined = cargando, null = sin elegir todavía
+  const [stuck, setStuck] = useState(false);
 
   useEffect(() => {
     if (DEV_MODE) return;
@@ -50,17 +51,34 @@ export default function App() {
   useEffect(() => {
     if (!activeUser) return;
     setRole(undefined);
-    const unsub = onSnapshot(doc(db, "team", activeUser.uid), (snap) => {
-      setRole(snap.exists() ? snap.data().role : null);
-    });
-    return unsub;
+    setStuck(false);
+    const timeout = setTimeout(() => setStuck(true), 8000);
+    const unsub = onSnapshot(
+      doc(db, "team", activeUser.uid),
+      (snap) => {
+        clearTimeout(timeout);
+        setRole(snap.exists() ? snap.data().role : null);
+      },
+      () => {
+        clearTimeout(timeout);
+        setStuck(true);
+      }
+    );
+    return () => { clearTimeout(timeout); unsub(); };
   }, [activeUser?.uid]);
 
   if (!DEV_MODE) {
     if (authLoading) return <CenteredMessage text="Cargando…" />;
     if (!user) return <LoginScreen />;
   }
-  if (role === undefined) return <CenteredMessage text="Cargando…" />;
+  if (role === undefined) {
+    if (stuck) {
+      return (
+        <CenteredMessage text="No se pudo conectar con Firebase. Revisa que src/firebase.js tenga tu firebaseConfig real (no el de ejemplo) y que Firestore esté activado en tu proyecto." />
+      );
+    }
+    return <CenteredMessage text="Cargando…" />;
+  }
   if (role === null) return <RoleGate user={activeUser} onSelected={setRole} />;
   return <MainShell user={activeUser} role={role} onChangeRole={() => setRole(null)} />;
 }
