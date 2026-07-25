@@ -238,3 +238,22 @@ Se añadieron dos tipos de incidencia de Calidad que corresponden a servicios qu
 ofrecéis: **Control de estabilidad / envejecimiento** y **Compatibilidad de
 materiales**. Si tenéis más actividades que no estén reflejadas en la app
 (formulación, I+D+I…), decidme y seguimos ampliando.
+
+---
+
+## Si las fotos se quedan en "Guardando…" sin terminar
+
+Ahora, si subir una foto tarda más de 20 segundos o falla, verás un mensaje de
+error claro (la orden/incidencia sí se guarda, solo falla la foto). Si ves ese
+mensaje, revisa esto en Firebase:
+
+1. **Storage → ¿está activado?** Si nunca pulsaste "Comenzar" en la sección
+   Storage del panel de Firebase, actívalo ahora.
+2. **Storage → Reglas** → confirma que pegaste el contenido de `storage.rules`
+   de este proyecto y le diste a Publicar.
+3. En `src/firebase.js`, revisa que `storageBucket` no esté vacío ni sea el
+   de ejemplo.
+
+Sin estos tres pasos, las fotos nunca podrán subirse aunque el resto de la
+app (tareas, materiales, etc.) funcione perfectamente, porque esos datos
+viven en Firestore, no en Storage.
