@@ -1,0 +1,14 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    // ⚠️ MODO PRUEBA — reglas abiertas temporalmente, ver nota en firestore.rules.
+    // Cambia "allow read, write: if true;" por "allow read, write: if request.auth != null;"
+    // cuando tengas técnicos reales creados en Authentication.
+    match /tasks/{taskId}/{fileName} {
+      allow read, write: if true;
+    }
+    match /quality/{issueId}/{fileName} {
+      allow read, write: if true;
+    }
+  }
+}
