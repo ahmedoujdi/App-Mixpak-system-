@@ -19,6 +19,7 @@ import {
   selectStyle,
   primaryButtonStyle,
   compressImage,
+  withTimeout,
   CenteredMessage,
   Field,
   ModalShell,
@@ -193,6 +194,7 @@ function IssueModal({ user, onClose }) {
   const [files, setFiles] = useState([]);
   const [previews, setPreviews] = useState([]);
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
   const fileInputRef = useRef(null);
 
   function handleFiles(e) {
@@ -205,29 +207,41 @@ function IssueModal({ user, onClose }) {
     e.preventDefault();
     if (!form.title.trim()) return;
     setSaving(true);
+    setError("");
+    let docRef;
     try {
-      const docRef = await addDoc(collection(db, "quality_issues"), {
+      docRef = await addDoc(collection(db, "quality_issues"), {
         ...form,
         reportedBy: user.email,
         createdAt: serverTimestamp(),
         photos: [],
       });
-      const uploaded = [];
-      for (const file of files) {
-        const blob = await compressImage(file);
-        const path = `quality/${docRef.id}/${Date.now()}-${file.name}.jpg`;
-        const storageRef = ref(storage, path);
-        await uploadBytes(storageRef, blob);
-        const url = await getDownloadURL(storageRef);
-        uploaded.push({ url, path });
-      }
-      if (uploaded.length) {
-        await updateDoc(doc(db, "quality_issues", docRef.id), { photos: uploaded });
-      }
-      onClose();
-    } finally {
+    } catch (err) {
       setSaving(false);
+      setError("No se pudo guardar la incidencia. Revisa tu conexión y las reglas de Firestore.");
+      return;
     }
+
+    if (files.length) {
+      try {
+        const uploaded = [];
+        for (const file of files) {
+          const blob = await compressImage(file);
+          const path = `quality/${docRef.id}/${Date.now()}-${file.name}.jpg`;
+          const storageRef = ref(storage, path);
+          await withTimeout(uploadBytes(storageRef, blob), 20000, "La subida de la foto tardó demasiado.");
+          const url = await withTimeout(getDownloadURL(storageRef), 20000, "No se pudo obtener el enlace de la foto.");
+          uploaded.push({ url, path });
+        }
+        await updateDoc(doc(db, "quality_issues", docRef.id), { photos: uploaded });
+      } catch (err) {
+        setSaving(false);
+        setError("La incidencia se guardó, pero las fotos no se pudieron subir. Revisa que Storage esté activado en Firebase y que storage.rules esté publicado.");
+        return;
+      }
+    }
+    setSaving(false);
+    onClose();
   }
 
   return (
@@ -277,6 +291,7 @@ function IssueModal({ user, onClose }) {
         <button type="submit" disabled={saving} style={{ ...primaryButtonStyle, width: "100%", justifyContent: "center", marginTop: 8 }}>
           {saving ? "Guardando…" : "Guardar incidencia"}
         </button>
+        {error && <p style={{ color: COLORS.critical, fontSize: 13, marginTop: 10 }}>{error}</p>}
       </form>
     </ModalShell>
   );
