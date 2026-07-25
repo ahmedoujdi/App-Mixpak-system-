@@ -1,21 +1,26 @@
-name: Deploy to Firebase Hosting on push
+name: Desplegar a Firebase Hosting
 
 on:
   push:
     branches:
-      - main
+      - main # Cambia esto por tu rama principal si usas "master" u otra
 
 jobs:
-  build_and_deploy:
+  deploy:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repo
+      - name: Checkout del código
         uses: actions/checkout@v4
 
-      - name: Deploy to Firebase
+      # (Opcional) Agrega aquí tus pasos de compilación si tu app los requiere, como:
+      # - name: Instalar dependencias
+      #   run: npm install
+      # - name: Compilar proyecto
+      #   run: npm run build
+
+      - name: Desplegar a Firebase Hosting
         uses: w9jds/firebase-action@master
         with:
           args: deploy --only hosting
         env:
-          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
-          PROJECT_ID: mixpak-system
+          GCP_SA_KEY: ${{ secrets.GCP_SA_KEY }}
