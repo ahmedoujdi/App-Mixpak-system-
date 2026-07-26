@@ -2,7 +2,8 @@ import React, { useState } from "react";
 import { doc, setDoc, serverTimestamp } from "firebase/firestore";
 import { db } from "./firebase.js";
 import { COLORS, primaryButtonStyle, HazardBar } from "./shared.jsx";
-import { ROLES } from "./roles.js";
+import { ROLES, roleLabel } from "./roles.js";
+import { notifyNewRegistration } from "./emailjs.js";
 import { Wrench, ShieldCheck, Factory, Boxes, LayoutDashboard, UserCog } from "lucide-react";
 
 const ICONS = { mecanico: Wrench, calidad: ShieldCheck, produccion: Factory, almacen: Boxes, supervisor: LayoutDashboard, admin: UserCog };
@@ -18,6 +19,7 @@ export default function RoleGate({ user, onSelected }) {
       aprobado: false,
       updatedAt: serverTimestamp(),
     });
+    notifyNewRegistration(user.email, roleLabel(role));
     onSelected({ role, aprobado: false });
   }
 
