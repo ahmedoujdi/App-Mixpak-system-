@@ -3,19 +3,45 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <meta name="theme-color" content="#22262A" />
-    <title>Mantenimiento Industrial</title>
+    <meta name="theme-color" content="#0f172a" />
+    <title>Mixpak System — Mantenimiento Industrial</title>
+    
+    <!-- Fuentes industriales limpias -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@500;600&display=swap"
-      rel="stylesheet"
-    />
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;600&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    
+    <!-- Script Tailwind CSS CDN para renderizado instantáneo -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            fontFamily: {
+              sans: ['Inter', 'sans-serif'],
+              mono: ['IBM Plex Mono', 'monospace'],
+            },
+            colors: {
+              mixpak: {
+                50: '#f0f9ff',
+                500: '#0284c7',
+                800: '#075985',
+                900: '#0c4a6e',
+                950: '#082f49',
+              }
+            }
+          }
+        }
+      }
+    </script>
     <style>
-      * { box-sizing: border-box; }
-      body { margin: 0; }
+      body {
+        background-color: #0f172a;
+        color: #f8fafc;
+        -webkit-tap-highlight-color: transparent;
+      }
     </style>
   </head>
-  <body>
+  <body class="bg-slate-900 font-sans antialiased text-slate-100">
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
   </body>
