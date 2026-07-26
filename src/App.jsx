@@ -1,248 +1,205 @@
-import React, { useState, useEffect } from "react";
-import {
-  signInWithEmailAndPassword,
-  createUserWithEmailAndPassword,
-  updateProfile,
-  onAuthStateChanged,
-  signOut,
-} from "firebase/auth";
-import { doc, onSnapshot } from "firebase/firestore";
-import { auth, db } from "./firebase.js";
-import { Wrench, Boxes, Factory, ShieldCheck, LogOut, UserCog, UserCheck } from "lucide-react";
-import { COLORS, inputStyle, primaryButtonStyle, ghostButtonStyle, CenteredMessage, Field, HazardBar } from "./shared.jsx";
-import Dashboard from "./modules/Dashboard.jsx";
-import Mantenimiento from "./modules/Mantenimiento.jsx";
-import Materiales from "./modules/Materiales.jsx";
-import Produccion from "./modules/Produccion.jsx";
-import Calidad from "./modules/Calidad.jsx";
-import Aprobaciones from "./modules/Aprobaciones.jsx";
-import { LayoutDashboard } from "lucide-react";
-import RoleGate from "./RoleGate.jsx";
-import PendingScreen from "./PendingScreen.jsx";
-import { ROLES, roleLabel, tabsForRole } from "./roles.js";
-
-const TABS = [
-  { value: "resumen", label: "Resumen", icon: LayoutDashboard, Component: Dashboard },
-  { value: "mantenimiento", label: "Mantenimiento", icon: Wrench, Component: Mantenimiento },
-  { value: "materiales", label: "Materiales", icon: Boxes, Component: Materiales },
-  { value: "produccion", label: "Producción", icon: Factory, Component: Produccion },
-  { value: "calidad", label: "Calidad", icon: ShieldCheck, Component: Calidad },
-  { value: "aprobaciones", label: "Aprobaciones", icon: UserCheck, Component: Aprobaciones },
-];
-
-// ⚠️ MODO PRUEBA: si algún día quieres volver a probar sin login, pon esto en
-// `true` de nuevo. Con `false`, cada persona necesita su propia cuenta real.
-const DEV_MODE = false;
-const DEV_USER = { email: "prueba@local (modo prueba)", uid: "dev-user" };
+import React, { useState, useEffect } from 'react';
+import { 
+  Wrench, Package, Factory, ShieldAlert, 
+  LayoutDashboard, UserCheck, Share2, Download, Search, LogOut 
+} from 'lucide-react';
 
 export default function App() {
-  const [user, setUser] = useState(null);
-  const [authLoading, setAuthLoading] = useState(!DEV_MODE);
-  const [team, setTeam] = useState(undefined); // undefined = cargando, null = sin elegir todavía
-  const [stuck, setStuck] = useState(false);
+  const [activeTab, setActiveTab] = useState('summary');
+  const [userRole, setUserRole] = useState('Supervisor'); // Roles: Mecánico, Calidad, Producción, Almacén, Supervisor, Admin
+  const [isApproved, setIsApproved] = useState(true); // Estado de aprobación por Admin
 
-  useEffect(() => {
-    if (DEV_MODE) return;
-    const unsub = onAuthStateChanged(auth, (u) => {
-      setUser(u);
-      setAuthLoading(false);
-    });
-    return unsub;
-  }, []);
+  // Menú de navegación según el rol
+  const navItems = [
+    { id: 'summary', label: 'Resumen', icon: LayoutDashboard, roles: ['Mecánico', 'Calidad', 'Producción', 'Almacén', 'Supervisor', 'admin'] },
+    { id: 'maintenance', label: 'Mantenimiento', icon: Wrench, roles: ['Mecánico', 'Supervisor', 'admin'] },
+    { id: 'materials', label: 'Materiales', icon: Package, roles: ['Almacén', 'Supervisor', 'admin'] },
+    { id: 'production', label: 'Producción', icon: Factory, roles: ['Producción', 'Supervisor', 'admin'] },
+    { id: 'quality', label: 'Calidad', icon: ShieldAlert, roles: ['Calidad', 'Supervisor', 'admin'] },
+    { id: 'approvals', label: 'Aprobaciones', icon: UserCheck, roles: ['admin'] },
+  ];
 
-  const activeUser = DEV_MODE ? DEV_USER : user;
-
-  useEffect(() => {
-    if (!activeUser) return;
-    setTeam(undefined);
-    setStuck(false);
-    const timeout = setTimeout(() => setStuck(true), 8000);
-    const unsub = onSnapshot(
-      doc(db, "team", activeUser.uid),
-      (snap) => {
-        clearTimeout(timeout);
-        setTeam(snap.exists() ? snap.data() : null);
-      },
-      () => {
-        clearTimeout(timeout);
-        setStuck(true);
-      }
-    );
-    return () => { clearTimeout(timeout); unsub(); };
-  }, [activeUser?.uid]);
-
-  if (!DEV_MODE) {
-    if (authLoading) return <CenteredMessage text="Cargando…" />;
-    if (!user) return <LoginScreen />;
-  }
-  if (team === undefined) {
-    if (stuck) {
-      return (
-        <CenteredMessage text="No se pudo conectar con Firebase. Revisa que src/firebase.js tenga tu firebaseConfig real (no el de ejemplo) y que Firestore esté activado en tu proyecto." />
-      );
-    }
-    return <CenteredMessage text="Cargando…" />;
-  }
-  if (team === null) return <RoleGate user={activeUser} onSelected={setTeam} />;
-  if (!team.aprobado) return <PendingScreen user={activeUser} role={team.role} />;
-  return <MainShell user={activeUser} role={team.role} onChangeRole={() => setTeam(null)} />;
-}
-
-function LoginScreen() {
-  const [mode, setMode] = useState("login"); // "login" | "register"
-  const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [error, setError] = useState("");
-  const [loading, setLoading] = useState(false);
-
-  async function handleLogin(e) {
-    e.preventDefault();
-    setError("");
-    setLoading(true);
-    try {
-      await signInWithEmailAndPassword(auth, email.trim(), password);
-    } catch (err) {
-      setError("Correo o contraseña incorrectos.");
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function handleRegister(e) {
-    e.preventDefault();
-    setError("");
-    if (password.length < 6) {
-      setError("La contraseña debe tener al menos 6 caracteres.");
-      return;
-    }
-    setLoading(true);
-    try {
-      const cred = await createUserWithEmailAndPassword(auth, email.trim(), password);
-      if (name.trim()) {
-        await updateProfile(cred.user, { displayName: name.trim() });
-      }
-    } catch (err) {
-      if (err.code === "auth/email-already-in-use") {
-        setError("Ese correo ya tiene una cuenta. Prueba a iniciar sesión.");
-      } else if (err.code === "auth/invalid-email") {
-        setError("El correo no es válido.");
-      } else {
-        setError("No se pudo crear la cuenta. Inténtalo de nuevo.");
-      }
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  return (
-    <div style={{ minHeight: "100vh", background: COLORS.dark, display: "flex", alignItems: "center", justifyContent: "center", padding: 20, fontFamily: "'IBM Plex Sans', sans-serif" }}>
-      <form onSubmit={mode === "login" ? handleLogin : handleRegister} style={{ background: COLORS.panel, width: "100%", maxWidth: 360, padding: 28 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 20 }}>
-          <div style={{ width: 36, height: 36, background: COLORS.safety, display: "flex", alignItems: "center", justifyContent: "center", transform: "rotate(45deg)" }}>
-            <Wrench size={18} color={COLORS.dark} style={{ transform: "rotate(-45deg)" }} />
+  if (!isApproved) {
+    return (
+      <div class="min-h-screen flex items-center justify-center p-4 bg-slate-900 text-center">
+        <div class="max-w-md bg-slate-800 p-8 rounded-2xl border border-slate-700 shadow-2xl">
+          <div class="w-16 h-16 bg-amber-500/10 text-amber-500 rounded-full flex items-center justify-center mx-auto mb-4">
+            <UserCheck class="w-8 h-8" />
           </div>
-          <h1 style={{ fontFamily: "'Oswald', sans-serif", textTransform: "uppercase", fontSize: 18, margin: 0 }}>
-            Mixpak System
-          </h1>
-        </div>
-
-        <div style={{ display: "flex", marginBottom: 20, borderBottom: `1px solid ${COLORS.line}` }}>
-          <button type="button" onClick={() => { setMode("login"); setError(""); }} style={{ flex: 1, padding: "8px 0", background: "none", border: "none", borderBottom: mode === "login" ? `2px solid ${COLORS.safety}` : "2px solid transparent", fontFamily: "'Oswald', sans-serif", textTransform: "uppercase", fontSize: 13, fontWeight: 600, color: mode === "login" ? COLORS.dark : COLORS.textMuted, cursor: "pointer" }}>
-            Entrar
-          </button>
-          <button type="button" onClick={() => { setMode("register"); setError(""); }} style={{ flex: 1, padding: "8px 0", background: "none", border: "none", borderBottom: mode === "register" ? `2px solid ${COLORS.safety}` : "2px solid transparent", fontFamily: "'Oswald', sans-serif", textTransform: "uppercase", fontSize: 13, fontWeight: 600, color: mode === "register" ? COLORS.dark : COLORS.textMuted, cursor: "pointer" }}>
-            Crear cuenta
-          </button>
-        </div>
-
-        {mode === "register" && (
-          <Field label="Nombre">
-            <input value={name} onChange={(e) => setName(e.target.value)} style={inputStyle} placeholder="Tu nombre" />
-          </Field>
-        )}
-        <Field label="Correo">
-          <input required type="email" value={email} onChange={(e) => setEmail(e.target.value)} style={inputStyle} placeholder="tecnico@empresa.com" />
-        </Field>
-        <Field label="Contraseña">
-          <input required type="password" value={password} onChange={(e) => setPassword(e.target.value)} style={inputStyle} />
-        </Field>
-        {error && <p style={{ color: COLORS.critical, fontSize: 13 }}>{error}</p>}
-        <button type="submit" disabled={loading} style={primaryButtonStyle}>
-          {loading ? "Un momento…" : mode === "login" ? "Entrar" : "Crear mi cuenta"}
-        </button>
-        {mode === "register" && (
-          <p style={{ fontSize: 12, color: COLORS.textMuted, marginTop: 14 }}>
-            Después de crear tu cuenta, te pedirá elegir tu categoría (mecánico, calidad…).
+          <h2 class="text-2xl font-bold text-white mb-2">Cuenta Pendiente de Aprobación</h2>
+          <p class="text-slate-400 text-sm mb-6">
+            Tu solicitud como <span class="text-amber-400 font-semibold">{userRole}</span> ha sido registrada. Un administrador validará tu acceso en breve.
           </p>
-        )}
-      </form>
-    </div>
-  );
-}
-
-function MainShell({ user, role, onChangeRole }) {
-  const allowedTabs = tabsForRole(role);
-  const visibleTabs = TABS.filter((t) => allowedTabs.includes(t.value));
-  const [tab, setTab] = useState(visibleTabs[0]?.value || "resumen");
-  const active = visibleTabs.find((t) => t.value === tab) || visibleTabs[0] || TABS[0];
-  const ActiveComponent = active.Component;
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div style={{ minHeight: "100vh", background: COLORS.bg, fontFamily: "'IBM Plex Sans', sans-serif", color: COLORS.dark }}>
-      <header style={{ background: COLORS.dark }}>
-        <HazardBar />
-        <div style={{ padding: "18px 20px", maxWidth: 1400, margin: "0 auto", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12 }}>
-          <div>
-            <h1 style={{ fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 20, textTransform: "uppercase", color: "#F5F3EC", margin: 0 }}>
-              Mixpak System
-            </h1>
-            <p style={{ color: "#B9B6AC", fontSize: 12, margin: "4px 0 0" }}>{user.email} · {roleLabel(role)}</p>
+    <div class="min-h-screen pb-20 md:pb-0 md:pl-64 bg-slate-900">
+      {/* Sidebar Desktop */}
+      <aside class="hidden md:flex flex-col fixed inset-y-0 left-0 w-64 bg-slate-950 border-r border-slate-800 p-4">
+        <div class="flex items-center gap-3 px-2 py-4 border-b border-slate-800 mb-6">
+          <div class="w-10 h-10 bg-mixpak-500 rounded-xl flex items-center justify-center text-white font-black text-xl shadow-lg shadow-mixpak-500/30">
+            M
           </div>
-          <div style={{ display: "flex", gap: 8 }}>
-            <button onClick={onChangeRole} style={{ ...ghostButtonStyle, color: "#F5F3EC", borderColor: "#454A4E" }}>
-              <UserCog size={16} /> Cambiar categoría
-            </button>
-            <button onClick={() => signOut(auth)} style={{ ...ghostButtonStyle, color: "#F5F3EC", borderColor: "#454A4E" }}>
-              <LogOut size={16} /> Salir
-            </button>
+          <div>
+            <h1 class="font-bold text-lg text-white leading-tight">Mixpak System</h1>
+            <span class="text-xs text-slate-500 font-mono">v1.0.0</span>
           </div>
         </div>
-        <nav style={{ maxWidth: 1400, margin: "0 auto", padding: "0 20px", display: "flex", gap: 4, overflowX: "auto" }}>
-          {visibleTabs.map((t) => {
-            const isActive = t.value === tab;
+
+        <nav class="space-y-1 flex-1">
+          {navItems.filter(item => item.roles.includes(userRole)).map(item => {
+            const Icon = item.icon;
+            const isActive = activeTab === item.id;
             return (
               <button
-                key={t.value}
-                onClick={() => setTab(t.value)}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 8,
-                  padding: "10px 16px",
-                  background: isActive ? COLORS.bg : "transparent",
-                  color: isActive ? COLORS.dark : "#B9B6AC",
-                  border: "none",
-                  borderTopLeftRadius: 4,
-                  borderTopRightRadius: 4,
-                  fontFamily: "'Oswald', sans-serif",
-                  fontSize: 13,
-                  textTransform: "uppercase",
-                  fontWeight: 600,
-                  cursor: "pointer",
-                  whiteSpace: "nowrap",
-                }}
+                key={item.id}
+                onClick={() => setActiveTab(item.id)}
+                class={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-medium transition-all duration-200 ${
+                  isActive 
+                    ? 'bg-mixpak-500 text-white shadow-lg shadow-mixpak-500/20' 
+                    : 'text-slate-400 hover:bg-slate-900 hover:text-slate-200'
+                }`}
               >
-                <t.icon size={15} /> {t.label}
+                <Icon class="w-5 h-5" />
+                <span>{item.label}</span>
               </button>
             );
           })}
         </nav>
+
+        <div class="pt-4 border-t border-slate-800">
+          <div class="flex items-center justify-between text-xs text-slate-400 px-2 mb-3">
+            <span>Rol: <strong class="text-white">{userRole}</strong></span>
+          </div>
+          <button class="w-full flex items-center justify-center gap-2 px-4 py-2 bg-slate-900 hover:bg-red-500/10 hover:text-red-400 text-slate-400 rounded-xl text-sm transition">
+            <LogOut class="w-4 h-4" />
+            Cerrar Sesión
+          </button>
+        </div>
+      </aside>
+
+      {/* Header Mobile */}
+      <header class="md:hidden flex items-center justify-between p-4 bg-slate-950 border-b border-slate-800 sticky top-0 z-50">
+        <div class="flex items-center gap-2">
+          <div class="w-8 h-8 bg-mixpak-500 rounded-lg flex items-center justify-center text-white font-bold text-sm">
+            M
+          </div>
+          <span class="font-bold text-white">Mixpak System</span>
+        </div>
+        <span class="text-xs bg-slate-800 text-mixpak-500 px-2.5 py-1 rounded-full font-mono border border-slate-700">
+          {userRole}
+        </span>
       </header>
 
-      <main style={{ maxWidth: 1400, margin: "0 auto", padding: 20 }}>
-        <ActiveComponent user={user} goTo={setTab} role={role} />
+      {/* Main Content Area */}
+      <main class="p-4 md:p-8 max-w-7xl mx-auto">
+        {activeTab === 'summary' && <SummaryView onNavigate={setActiveTab} />}
+        {activeTab === 'maintenance' && <ModulePlaceholder title="Mantenimiento Industrial" icon={Wrench} />}
+        {activeTab === 'materials' && <ModulePlaceholder title="Gestión de Materiales y Lotes" icon={Package} />}
+        {activeTab === 'production' && <ModulePlaceholder title="Órdenes de Producción" icon={Factory} />}
+        {activeTab === 'quality' && <ModulePlaceholder title="Control de Calidad e Incidencias" icon={ShieldAlert} />}
       </main>
+
+      {/* Bottom Navigation Mobile */}
+      <nav class="md:hidden fixed bottom-0 inset-x-0 bg-slate-950 border-t border-slate-800 flex justify-around p-2 z-50">
+        {navItems.filter(item => item.roles.includes(userRole)).slice(0, 5).map(item => {
+          const Icon = item.icon;
+          const isActive = activeTab === item.id;
+          return (
+            <button
+              key={item.id}
+              onClick={() => setActiveTab(item.id)}
+              class={`flex flex-col items-center gap-1 p-2 rounded-lg text-xs ${
+                isActive ? 'text-mixpak-500 font-semibold' : 'text-slate-500'
+              }`}
+            >
+              <Icon class="w-5 h-5" />
+              <span>{item.label}</span>
+            </button>
+          );
+        })}
+      </nav>
+    </div>
+  );
+}
+
+// Vista Resumen Ejecutiva
+function SummaryView({ onNavigate }) {
+  return (
+    <div class="space-y-6">
+      <div>
+        <h2 class="text-2xl font-bold text-white">Panel General</h2>
+        <p class="text-slate-400 text-sm">Vista unificada del estado operativo de planta.</p>
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        {/* Card Mantenimiento */}
+        <div onClick={() => onNavigate('maintenance')} class="bg-slate-800/60 border border-slate-700 hover:border-mixpak-500 p-5 rounded-2xl cursor-pointer transition group">
+          <div class="flex items-center justify-between mb-3">
+            <span class="text-xs font-semibold text-amber-400 bg-amber-400/10 px-2.5 py-1 rounded-full border border-amber-400/20">3 Pendientes</span>
+            <Wrench class="w-5 h-5 text-slate-400 group-hover:text-mixpak-500 transition" />
+          </div>
+          <h3 class="text-lg font-bold text-white mb-1">Mantenimiento</h3>
+          <p class="text-xs text-slate-400">1 Tarea crítica reportada en Línea 2.</p>
+        </div>
+
+        {/* Card Materiales */}
+        <div onClick={() => onNavigate('materials')} class="bg-slate-800/60 border border-slate-700 hover:border-mixpak-500 p-5 rounded-2xl cursor-pointer transition group">
+          <div class="flex items-center justify-between mb-3">
+            <span class="text-xs font-semibold text-rose-400 bg-rose-400/10 px-2.5 py-1 rounded-full border border-rose-400/20">Stock Bajo</span>
+            <Package class="w-5 h-5 text-slate-400 group-hover:text-mixpak-500 transition" />
+          </div>
+          <h3 class="text-lg font-bold text-white mb-1">Materiales</h3>
+          <p class="text-xs text-slate-400">2 Insumos bajo el límite mínimo.</p>
+        </div>
+
+        {/* Card Producción */}
+        <div onClick={() => onNavigate('production')} class="bg-slate-800/60 border border-slate-700 hover:border-mixpak-500 p-5 rounded-2xl cursor-pointer transition group">
+          <div class="flex items-center justify-between mb-3">
+            <span class="text-xs font-semibold text-emerald-400 bg-emerald-400/10 px-2.5 py-1 rounded-full border border-emerald-400/20">88% OEE</span>
+            <Factory class="w-5 h-5 text-slate-400 group-hover:text-mixpak-500 transition" />
+          </div>
+          <h3 class="text-lg font-bold text-white mb-1">Producción</h3>
+          <p class="text-xs text-slate-400">4 Órdenes activas en Turno 1.</p>
+        </div>
+
+        {/* Card Calidad */}
+        <div onClick={() => onNavigate('quality')} class="bg-slate-800/60 border border-slate-700 hover:border-mixpak-500 p-5 rounded-2xl cursor-pointer transition group">
+          <div class="flex items-center justify-between mb-3">
+            <span class="text-xs font-semibold text-sky-400 bg-sky-400/10 px-2.5 py-1 rounded-full border border-sky-400/20">OK</span>
+            <ShieldAlert class="w-5 h-5 text-slate-400 group-hover:text-mixpak-500 transition" />
+          </div>
+          <h3 class="text-lg font-bold text-white mb-1">Calidad</h3>
+          <p class="text-xs text-slate-400">0 Incidencias graves registradas hoy.</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ModulePlaceholder({ title, icon: Icon }) {
+  return (
+    <div class="bg-slate-800/40 border border-slate-800 p-8 rounded-2xl text-center space-y-4">
+      <div class="w-12 h-12 bg-slate-700/50 text-mixpak-500 rounded-xl flex items-center justify-center mx-auto">
+        <Icon class="w-6 h-6" />
+      </div>
+      <h2 class="text-xl font-bold text-white">{title}</h2>
+      <div class="flex items-center justify-center gap-2 max-w-md mx-auto">
+        <div class="relative w-full">
+          <Search class="w-4 h-4 absolute left-3 top-3 text-slate-500" />
+          <input 
+            type="text" 
+            placeholder="Buscar por lote, cliente, máquina..." 
+            class="w-full pl-9 pr-4 py-2 bg-slate-900 border border-slate-700 rounded-xl text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-mixpak-500"
+          />
+        </div>
+        <button class="p-2 bg-slate-700 hover:bg-slate-600 text-slate-200 rounded-xl transition" title="Exportar CSV">
+          <Download class="w-5 h-5" />
+        </button>
+      </div>
     </div>
   );
 }
