@@ -1,5 +1,8 @@
 {
-  "appId": "com.tuempresa.mantenimiento",
-  "appName": "Mantenimiento Industrial",
-  "webDir": "dist"
+  "appId": "com.mixpak.app",
+  "appName": "Mixpak System",
+  "webDir": "dist",
+  "server": {
+    "androidScheme": "https"
+  }
 }
