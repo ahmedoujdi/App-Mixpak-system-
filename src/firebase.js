@@ -1,23 +1,30 @@
-import { initializeApp } from "firebase/app";
+import { initializeApp, getApps, getApp } from "firebase/app";
 import { getAuth } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
 
-// 1. Ve a https://console.firebase.google.com -> tu proyecto -> Configuración del proyecto
-// 2. En "Tus apps", crea una app Web (icono </>)
-// 3. Copia aquí el objeto firebaseConfig que te da Firebase
+// 1. Configuración flexible con fallback a variables de entorno (.env)
+// Si no existen las variables en el entorno, utiliza los valores por defecto.
 const firebaseConfig = {
-  apiKey: "AIzaSyBBSKwL1FMTOo0m62SrvnOObHeK3rR68Ys",
-  authDomain: "mixpak-system.firebaseapp.com",
-  projectId: "mixpak-system",
-  messagingSenderId: "552046543093",
-  // appId: se obtiene registrando una app "Web" (icono </>) en Firebase, distinta
-  // de la app Android. No es necesario para que funcionen Auth/Firestore,
-  // así que la app funciona igual sin él.
+  apiKey:
+    import.meta.env?.VITE_FIREBASE_API_KEY ||
+    "AIzaSyBBSKwL1FMTOo0m62SrvnOObHeK3rR68Ys",
+  authDomain:
+    import.meta.env?.VITE_FIREBASE_AUTH_DOMAIN ||
+    "mixpak-system.firebaseapp.com",
+  projectId:
+    import.meta.env?.VITE_FIREBASE_PROJECT_ID ||
+    "mixpak-system",
+  messagingSenderId:
+    import.meta.env?.VITE_FIREBASE_MESSAGING_SENDER_ID ||
+    "552046543093",
+  appId: import.meta.env?.VITE_FIREBASE_APP_ID || undefined,
 };
-// Nota: ya no usamos Firebase Storage (las fotos van a Cloudinary, ver src/cloudinary.js),
-// así que no hace falta storageBucket ni tener el proyecto en plan Blaze.
 
-const app = initializeApp(firebaseConfig);
+// 2. Prevención de múltiples inicializaciones (Patrón Singleton para HMR / Vite)
+const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
 
+// 3. Exportación de servicios
 export const auth = getAuth(app);
 export const db = getFirestore(app);
+
+export default app;
