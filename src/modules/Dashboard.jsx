@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from "react";
 import { collection, onSnapshot } from "firebase/firestore";
-import { db } from "./firebase.js"; // O "../firebase.js" según donde esté tu Dashboard.jsx
-import { CenteredMessage } from "./shared.jsx"; 
+// Cambiamos "./" por "../" para subir a la carpeta src/
+import { db } from "../firebase.js";
+import { CenteredMessage } from "../shared.jsx";
 
 export default function Dashboard() {
   const [loading, setLoading] = useState(true);
@@ -17,7 +18,6 @@ export default function Dashboard() {
     let isMounted = true;
 
     try {
-      // Escuchar tareas
       const unsubTasks = onSnapshot(
         collection(db, "tasks"),
         (snap) => {
@@ -26,7 +26,6 @@ export default function Dashboard() {
         (err) => console.error("Error cargando tareas:", err)
       );
 
-      // Escuchar producción
       const unsubProd = onSnapshot(
         collection(db, "production_orders"),
         (snap) => {
@@ -35,7 +34,6 @@ export default function Dashboard() {
         (err) => console.error("Error cargando producción:", err)
       );
 
-      // Escuchar materiales
       const unsubMat = onSnapshot(
         collection(db, "materials"),
         (snap) => {
@@ -44,7 +42,6 @@ export default function Dashboard() {
         (err) => console.error("Error cargando materiales:", err)
       );
 
-      // Escuchar calidad
       const unsubQual = onSnapshot(
         collection(db, "quality_issues"),
         (snap) => {
@@ -54,8 +51,6 @@ export default function Dashboard() {
       );
 
       unsubs = [unsubTasks, unsubProd, unsubMat, unsubQual];
-
-      // Quitamos el indicador de carga una vez inicializados los listeners
       setLoading(false);
     } catch (error) {
       console.error("Error al inicializar dashboard:", error);
