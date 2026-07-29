@@ -25,6 +25,8 @@ import {
   exportToCsv,
   shareText,
   logActivity,
+  DateRangeFilter,
+  inDateRange,
   CenteredMessage,
   Field,
   ModalShell,
@@ -70,6 +72,8 @@ export default function Produccion({ user }) {
   const [editOrder, setEditOrder] = useState(null);
   const [confirmDelete, setConfirmDelete] = useState(null);
   const [search, setSearch] = useState("");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
 
   useEffect(() => {
     const q = query(collection(db, "production_orders"), orderBy("createdAt", "desc"));
@@ -93,10 +97,11 @@ export default function Produccion({ user }) {
 
   const filtered = useMemo(() => {
     return orders.filter((o) => {
+      if (!inDateRange(o.date, dateFrom, dateTo)) return false;
       if (!search) return true;
       return `${o.product} ${o.client || ""} ${o.lot || ""} ${o.line || ""}`.toLowerCase().includes(search.toLowerCase());
     });
-  }, [orders, search]);
+  }, [orders, search, dateFrom, dateTo]);
 
   const stats = useMemo(() => {
     const today = new Date().toISOString().slice(0, 10);
@@ -137,6 +142,7 @@ export default function Produccion({ user }) {
           <Search size={14} color={COLORS.textMuted} style={{ position: "absolute", left: 9, top: 11 }} />
           <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar por producto, cliente, lote o línea" style={{ ...inputStyle, paddingLeft: 30 }} />
         </div>
+        <DateRangeFilter from={dateFrom} to={dateTo} onFromChange={setDateFrom} onToChange={setDateTo} />
         <button
           onClick={() => exportToCsv("ordenes-produccion", filtered.map((o) => ({
             producto: o.product, cliente: o.client || "", lote: o.lot || "", linea: o.line || "",
