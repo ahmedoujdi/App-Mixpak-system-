@@ -3,11 +3,11 @@ import { Wrench, Boxes, Factory, ShieldCheck, History, User, Bell, Search } from
 import { COLORS } from "./shared.jsx";
 
 // Importación de módulos
-import MantenimientoModule from "./Mantenimiento.jsx";
-import MaterialesModule from "./Materiales.jsx";
-import ProduccionModule from "./Produccion.jsx";
-import CalidadModule from "./Calidad.jsx";
-import HistorialModule from "./Historial.jsx";
+import MantenimientoModule from "src/modules/Mantenimiento.jsx";
+import MaterialesModule from "src/modules/Materiales.jsx";
+import ProduccionModule from "src/modules/Produccion.jsx";
+import CalidadModule from "src/modules/Calidad.jsx";
+import HistorialModule from "src/modules/Historial.jsx";
 
 export default function App() {
   const [activeTab, setActiveTab] = useState("mantenimiento");
