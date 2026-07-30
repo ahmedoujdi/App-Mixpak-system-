@@ -1,7 +1,7 @@
 import React, { useState, useEffect, createContext, useContext } from "react";
 import { addDoc, collection, serverTimestamp } from "firebase/firestore";
 import { db } from "./firebase.js";
-import { X, Calendar, CheckCircle2, AlertTriangle, Info, Bell } from "lucide-react";
+import { X, Calendar, CheckCircle2, AlertTriangle, Info } from "lucide-react";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 
@@ -77,7 +77,6 @@ export function useToast() {
 export function exportToPdf(title, headers, rows, filename = "reporte-industrial") {
   const doc = new jsPDF();
   
-  // Encabezado del documento
   doc.setFillColor(19, 26, 34);
   doc.rect(0, 0, 210, 30, "F");
   
@@ -103,6 +102,23 @@ export function exportToPdf(title, headers, rows, filename = "reporte-industrial
   });
 
   doc.save(`${filename}.pdf`);
+}
+
+// --- UTILIDADES DE FECHA ---
+export function inDateRange(timestamp, fromStr, toStr) {
+  if (!timestamp) return true;
+  const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
+  if (fromStr) {
+    const from = new Date(fromStr);
+    from.setHours(0, 0, 0, 0);
+    if (date < from) return false;
+  }
+  if (toStr) {
+    const to = new Date(toStr);
+    to.setHours(23, 59, 59, 999);
+    if (date > to) return false;
+  }
+  return true;
 }
 
 // --- ESTILOS COMPARTIDOS ---
@@ -255,6 +271,17 @@ export function EmptyState({ Icon, title, message, onAdd, addLabel }) {
       <h3 style={{ margin: "0 0 6px", fontSize: 15, fontWeight: 700 }}>{title}</h3>
       <p style={{ margin: "0 0 16px", fontSize: 13, color: COLORS.textMuted }}>{message}</p>
       {onAdd && <button onClick={onAdd} style={primaryButtonStyle}>{addLabel}</button>}
+    </div>
+  );
+}
+
+export function DateRangeFilter({ from, to, onFromChange, onToChange }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 6, background: "#080c10", border: `1px solid ${COLORS.border}`, padding: "6px 10px", borderRadius: 6 }}>
+      <Calendar size={14} color={COLORS.textMuted} />
+      <input type="date" value={from} onChange={(e) => onFromChange(e.target.value)} style={{ background: "none", border: "none", color: COLORS.text, fontSize: 12, outline: "none" }} />
+      <span style={{ color: COLORS.textMuted, fontSize: 12 }}>a</span>
+      <input type="date" value={to} onChange={(e) => onToChange(e.target.value)} style={{ background: "none", border: "none", color: COLORS.text, fontSize: 12, outline: "none" }} />
     </div>
   );
 }
