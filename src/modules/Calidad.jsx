@@ -1,136 +1,237 @@
-import React, { useState, useMemo } from "react";
-import { Plus, ShieldCheck, Search, Edit3, Trash2 } from "lucide-react";
-import { COLORS, primaryButtonStyle, ghostButtonStyle, inputStyle, ModalShell, Field, StatusBadge } from "./shared.jsx";
-import ExportButton from "./ExportModule.jsx";
+import React, { useState, useEffect, useMemo } from "react";
+import {
+  collection,
+  onSnapshot,
+  addDoc,
+  deleteDoc,
+  doc,
+  serverTimestamp,
+  query,
+  orderBy,
+} from "firebase/firestore";
 
-const MOCK_QUALITY_DATA = [
-  { id: "qual-1", title: "Variación de Viscosidad fuera de tolerancia", type: "Proceso", lot: "L-2026-088", reference: "REF-QUAL-01", severity: "alta", status: "en_revision" },
-  { id: "qual-2", title: "Filtro de empaque dañado en origen", type: "Materia Prima", lot: "L-2026-081", reference: "REF-QUAL-02", severity: "critica", status: "cerrado" },
-];
+// ⚠️ RUTAS CORREGIDAS CON ../
+import { db } from "../firebase.js";
+import {
+  ShieldCheck,
+  Plus,
+  Trash2,
+  CheckCircle,
+  XCircle,
+  Download,
+  Search,
+  AlertTriangle,
+} from "lucide-react";
+import {
+  COLORS,
+  inputStyle,
+  selectStyle,
+  primaryButtonStyle,
+  ghostButtonStyle,
+  exportToCsv,
+  logActivity,
+  CenteredMessage,
+  Field,
+  ModalShell,
+  ConfirmDialog,
+  StatCard,
+  EmptyState,
+} from "../shared.jsx";
 
-export default function CalidadModule({ currentUser, globalSearch = "" }) {
-  const [incidents, setIncidents] = useState(MOCK_QUALITY_DATA);
-  const [searchTerm, setSearchTerm] = useState("");
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [editingItem, setEditingItem] = useState(null);
+const emptyForm = {
+  batch: "",
+  product: "",
+  result: "conforme", // conforme, no_conforme, pendiente
+  parameters: "",
+  notes: "",
+};
 
-  const [formData, setFormData] = useState({ title: "", type: "Proceso", lot: "", reference: "", severity: "media", status: "abierto" });
+export default function Calidad({ user }) {
+  const [inspections, setInspections] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const [filterResult, setFilterResult] = useState("todos");
+  const [confirmDelete, setConfirmDelete] = useState(null);
 
-  const effectiveSearch = globalSearch || searchTerm;
+  useEffect(() => {
+    const q = query(collection(db, "quality_checks"), orderBy("createdAt", "desc"));
+    const unsub = onSnapshot(q, (snap) => {
+      setInspections(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+      setLoading(false);
+    });
+    return unsub;
+  }, []);
+
+  async function removeInspection(item) {
+    await deleteDoc(doc(db, "quality_checks", item.id));
+    logActivity(user.email, "Calidad", "Eliminada", `Inspección lote ${item.batch}`);
+    setConfirmDelete(null);
+  }
 
   const filtered = useMemo(() => {
-    return incidents.filter(i => 
-      i.title.toLowerCase().includes(effectiveSearch.toLowerCase()) ||
-      i.lot.toLowerCase().includes(effectiveSearch.toLowerCase()) ||
-      i.reference.toLowerCase().includes(effectiveSearch.toLowerCase())
-    );
-  }, [incidents, effectiveSearch]);
+    return inspections.filter((i) => {
+      if (filterResult !== "todos" && i.result !== filterResult) return false;
+      if (search && !`${i.batch} ${i.product}`.toLowerCase().includes(search.toLowerCase())) return false;
+      return true;
+    });
+  }, [inspections, filterResult, search]);
 
-  const handleOpenModal = (item = null) => {
-    if (item) {
-      setEditingItem(item);
-      setFormData(item);
-    } else {
-      setEditingItem(null);
-      setFormData({ title: "", type: "Proceso", lot: "", reference: `REF-QUAL-0${incidents.length + 1}`, severity: "media", status: "abierto" });
-    }
-    setIsModalOpen(true);
-  };
-
-  const handleSave = (e) => {
-    e.preventDefault();
-    if (editingItem) {
-      setIncidents(incidents.map(i => i.id === editingItem.id ? { ...formData } : i));
-    } else {
-      setIncidents([...incidents, { ...formData, id: `qual-${Date.now()}` }]);
-    }
-    setIsModalOpen(false);
-  };
+  const stats = useMemo(() => {
+    let approved = 0;
+    let rejected = 0;
+    inspections.forEach((i) => {
+      if (i.result === "conforme") approved++;
+      if (i.result === "no_conforme") rejected++;
+    });
+    return { total: inspections.length, approved, rejected };
+  }, [inspections]);
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "16px" }}>
-        <div>
-          <h1 style={{ margin: 0, fontSize: "22px", fontWeight: "800", color: COLORS.textMain }}>Aseguramiento de Calidad</h1>
-          <p style={{ margin: "4px 0 0 0", fontSize: "13px", color: COLORS.textMuted }}>Gestión de hallazgos, desviaciones e inspecciones</p>
-        </div>
-
-        <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
-          <ExportButton moduleName="Calidad" data={filtered} userEmail={currentUser?.email || "operaciones@mixpak.com"} search={effectiveSearch} />
-          <button onClick={() => handleOpenModal()} style={primaryButtonStyle}>
-            <Plus size={16} /> Reportar Incidencia
-          </button>
-        </div>
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12, marginBottom: 18 }}>
+        <h1 style={{ fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 20, textTransform: "uppercase", margin: 0 }}>
+          Control de Calidad e Inspecciones
+        </h1>
+        <button onClick={() => setModalOpen(true)} style={primaryButtonStyle}>
+          <Plus size={16} /> Nueva Inspección
+        </button>
       </div>
 
-      <div style={{ backgroundColor: COLORS.cardBg, border: `1px solid ${COLORS.cardBorder}`, borderRadius: "12px", overflow: "hidden" }}>
-        <table style={{ width: "100%", borderCollapse: "collapse", textAlign: "left", fontSize: "13px" }}>
-          <thead>
-            <tr style={{ backgroundColor: "rgba(255, 255, 255, 0.02)", borderBottom: `1px solid ${COLORS.cardBorder}` }}>
-              <th style={thStyle}>Referencia</th>
-              <th style={thStyle}>Descripción / Incidencia</th>
-              <th style={thStyle}>Lote Afectado</th>
-              <th style={thStyle}>Tipo</th>
-              <th style={thStyle}>Severidad</th>
-              <th style={thStyle}>Estado</th>
-              <th style={{ ...thStyle, textAlign: "right" }}>Acciones</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filtered.map(i => (
-              <tr key={i.id} style={{ borderBottom: `1px solid ${COLORS.cardBorder}` }}>
-                <td style={{ ...tdStyle, fontWeight: "700", color: COLORS.primary }}>{i.reference}</td>
-                <td style={{ ...tdStyle, fontWeight: "600" }}>{i.title}</td>
-                <td style={tdStyle}>{i.lot}</td>
-                <td style={tdStyle}>{i.type}</td>
-                <td style={tdStyle}>
-                  {i.severity === "critica" ? <StatusBadge status="CRÍTICA" type="danger" /> : <StatusBadge status={i.severity.toUpperCase()} type="warning" />}
-                </td>
-                <td style={tdStyle}>
-                  {i.status === "cerrado" ? <StatusBadge status="CERRADO" type="success" /> : <StatusBadge status="EN REVISIÓN" type="info" />}
-                </td>
-                <td style={{ ...tdStyle, textAlign: "right" }}>
-                  <button onClick={() => handleOpenModal(i)} style={actionBtnStyle}><Edit3 size={14} /></button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10, marginBottom: 20 }}>
+        <StatCard label="Total Inspecciones" value={stats.total} color={COLORS.steel} Icon={ShieldCheck} />
+        <StatCard label="Conformes" value={stats.approved} color={COLORS.green} Icon={CheckCircle} />
+        <StatCard label="No Conformes" value={stats.rejected} color={COLORS.critical} Icon={XCircle} />
       </div>
 
-      {isModalOpen && (
-        <ModalShell onClose={() => setIsModalOpen(false)} title={editingItem ? `Editar Incidencia ${editingItem.reference}` : "Registrar Incidencia de Calidad"}>
-          <form onSubmit={handleSave} style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
-            <Field label="Referencia">
-              <input type="text" value={formData.reference} onChange={e => setFormData({ ...formData, reference: e.target.value })} style={inputStyle} required />
-            </Field>
-            <Field label="Incidencia">
-              <input type="text" value={formData.title} onChange={e => setFormData({ ...formData, title: e.target.value })} style={inputStyle} required />
-            </Field>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
-              <Field label="Lote Afectado">
-                <input type="text" value={formData.lot} onChange={e => setFormData({ ...formData, lot: e.target.value })} style={inputStyle} required />
-              </Field>
-              <Field label="Severidad">
-                <select value={formData.severity} onChange={e => setFormData({ ...formData, severity: e.target.value })} style={inputStyle}>
-                  <option value="baja">Baja</option>
-                  <option value="media">Media</option>
-                  <option value="alta">Alta</option>
-                  <option value="critica">Crítica</option>
-                </select>
-              </Field>
-            </div>
-            <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px", marginTop: "12px" }}>
-              <button type="button" onClick={() => setIsModalOpen(false)} style={ghostButtonStyle}>Cancelar</button>
-              <button type="submit" style={primaryButtonStyle}>Guardar Registro</button>
-            </div>
-          </form>
-        </ModalShell>
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 18, alignItems: "center" }}>
+        <div style={{ position: "relative", flex: "1 1 200px" }}>
+          <Search size={14} color={COLORS.textMuted} style={{ position: "absolute", left: 9, top: 11 }} />
+          <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar por lote o producto..." style={{ ...inputStyle, paddingLeft: 30 }} />
+        </div>
+        <select value={filterResult} onChange={(e) => setFilterResult(e.target.value)} style={{ ...selectStyle, width: "auto" }}>
+          <option value="todos">Todos los resultados</option>
+          <option value="conforme">Conforme</option>
+          <option value="no_conforme">No Conforme</option>
+          <option value="pendiente">Pendiente</option>
+        </select>
+        <button
+          onClick={() => exportToCsv("inspecciones-calidad", filtered.map((i) => ({
+            lote: i.batch, producto: i.product, resultado: i.result, inspector: i.inspector, parametros: i.parameters
+          })))}
+          style={ghostButtonStyle}
+        >
+          <Download size={16} /> Exportar
+        </button>
+      </div>
+
+      {loading ? (
+        <CenteredMessage text="Cargando registros de calidad…" />
+      ) : inspections.length === 0 ? (
+        <EmptyState Icon={ShieldCheck} title="Sin inspecciones registradas" message="Registra el primer control de calidad." onAdd={() => setModalOpen(true)} addLabel="Nueva Inspección" />
+      ) : (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 14 }}>
+          {filtered.map((item) => {
+            const isOk = item.result === "conforme";
+            const isReject = item.result === "no_conforme";
+            const badgeColor = isOk ? COLORS.green : isReject ? COLORS.critical : COLORS.safety;
+
+            return (
+              <div key={item.id} style={{ background: COLORS.panel, borderLeft: `5px solid ${badgeColor}`, padding: 16, borderRadius: "0 6px 6px 0" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                  <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 12, color: COLORS.textMuted }}>Lote: {item.batch}</span>
+                  <button onClick={() => setConfirmDelete(item)} style={{ background: "none", border: "none", color: COLORS.textMuted, cursor: "pointer" }}>
+                    <Trash2 size={14} />
+                  </button>
+                </div>
+                <h3 style={{ fontSize: 16, margin: "0 0 8px", fontWeight: 600 }}>{item.product}</h3>
+                
+                <div style={{ display: "inline-flex", alignItems: "center", gap: 6, background: "#0f1722", padding: "4px 8px", borderRadius: 4, fontSize: 12, fontWeight: 600, color: badgeColor, marginBottom: 10 }}>
+                  {isOk && <CheckCircle size={14} />}
+                  {isReject && <XCircle size={14} />}
+                  {!isOk && !isReject && <AlertTriangle size={14} />}
+                  {item.result.replace("_", " ").toUpperCase()}
+                </div>
+
+                {item.parameters && (
+                  <p style={{ fontSize: 13, color: COLORS.textMuted, margin: "4px 0" }}>
+                    <strong>Parámetros:</strong> {item.parameters}
+                  </p>
+                )}
+                {item.notes && (
+                  <p style={{ fontSize: 12, color: COLORS.textMuted, margin: "4px 0", fontStyle: "italic" }}>
+                    "{item.notes}"
+                  </p>
+                )}
+                <div style={{ fontSize: 11, color: COLORS.textMuted, marginTop: 10, textAlign: "right" }}>
+                  Inspector: {item.inspector || "N/A"}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {modalOpen && <InspectionModal user={user} onClose={() => setModalOpen(false)} />}
+      {confirmDelete && (
+        <ConfirmDialog
+          title="Eliminar registro"
+          message="¿Seguro que deseas borrar este registro de calidad?"
+          onCancel={() => setConfirmDelete(null)}
+          onConfirm={() => removeInspection(confirmDelete)}
+        />
       )}
     </div>
   );
 }
 
-const thStyle = { padding: "12px 16px", fontWeight: "600", fontSize: "12px", color: COLORS.textMuted };
-const tdStyle = { padding: "12px 16px", color: COLORS.textMain };
-const actionBtnStyle = { backgroundColor: "transparent", border: `1px solid ${COLORS.cardBorder}`, borderRadius: "6px", color: COLORS.textMuted, cursor: "pointer", padding: "6px", display: "inline-flex" };
+function InspectionModal({ user, onClose }) {
+  const [form, setForm] = useState(emptyForm);
+  const [saving, setSaving] = useState(false);
+
+  async function submit(e) {
+    e.preventDefault();
+    if (!form.batch.trim() || !form.product.trim()) return;
+    setSaving(true);
+    try {
+      await addDoc(collection(db, "quality_checks"), {
+        ...form,
+        inspector: user.email,
+        createdAt: serverTimestamp(),
+      });
+      logActivity(user.email, "Calidad", "Nueva Inspección", `Lote ${form.batch}`);
+      onClose();
+    } catch (err) {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <ModalShell onClose={onClose} title="Nueva Inspección de Calidad">
+      <form onSubmit={submit}>
+        <Field label="Número de Lote *">
+          <input required value={form.batch} onChange={(e) => setForm({ ...form, batch: e.target.value })} style={inputStyle} placeholder="Ej. L-2026-089" />
+        </Field>
+        <Field label="Producto / Material *">
+          <input required value={form.product} onChange={(e) => setForm({ ...form, product: e.target.value })} style={inputStyle} placeholder="Ej. Mezcla Química X" />
+        </Field>
+        <Field label="Resultado de la Evaluación">
+          <select value={form.result} onChange={(e) => setForm({ ...form, result: e.target.value })} style={selectStyle}>
+            <option value="conforme">Conforme (Aprobado)</option>
+            <option value="no_conforme">No Conforme (Rechazado)</option>
+            <option value="pendiente">Pendiente de Análisis</option>
+          </select>
+        </Field>
+        <Field label="Parámetros evaluados">
+          <input value={form.parameters} onChange={(e) => setForm({ ...form, parameters: e.target.value })} style={inputStyle} placeholder="Ej. pH: 7.2, Viscosidad: Normal" />
+        </Field>
+        <Field label="Observaciones">
+          <textarea value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} style={{ ...inputStyle, minHeight: 60, resize: "vertical" }} placeholder="Notas adicionales..." />
+        </Field>
+        <button type="submit" disabled={saving} style={{ ...primaryButtonStyle, width: "100%", justifyContent: "center", marginTop: 8 }}>
+          {saving ? "Guardando…" : "Registrar Inspección"}
+        </button>
+      </form>
+    </ModalShell>
+  );
+}
