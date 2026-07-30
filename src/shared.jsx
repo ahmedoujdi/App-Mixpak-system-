@@ -329,6 +329,35 @@ export function EmptyState({ Icon, title, message, onAdd, addLabel }) {
       <p style={{ margin: "0 0 16px", fontSize: 13, color: COLORS.textMuted }}>{message}</p>
       {onAdd && <button onClick={onAdd} style={primaryButtonStyle}>{addLabel}</button>}
     </div>
+    // --- CÁLCULO DE KPIS DE MANTENIMIENTO ---
+export function calculateKPIs(logs = []) {
+  const completedLogs = logs.filter((l) => l.status === "Completado" || l.status === "Cerrado");
+
+  if (completedLogs.length === 0) {
+    return { mttr: "0h", mtbf: "0h", availability: "100%" };
+  }
+
+  // MTTR (Mean Time To Repair): Tiempo Promedio de Reparación en Horas
+  const totalDowntimeHours = completedLogs.reduce((acc, item) => {
+    return acc + (Number(item.repairTimeHours) || 1); // Por defecto 1h si no especifica
+  }, 0);
+
+  const mttr = (totalDowntimeHours / completedLogs.length).toFixed(1);
+
+  // MTBF (Mean Time Between Failures): Tiempo Promedio Entre Fallas
+  const totalOperatingHours = 720; // Estimado mensual (30 días * 24h)
+  const mtbf = ((totalOperatingHours - totalDowntimeHours) / (completedLogs.length || 1)).toFixed(1);
+
+  // Disponibilidad de Planta (%)
+  const availability = (((totalOperatingHours - totalDowntimeHours) / totalOperatingHours) * 100).toFixed(1);
+
+  return {
+    mttr: `${mttr}h`,
+    mtbf: `${mtbf}h`,
+    availability: `${availability}%`,
+  };
+}
+
   );
 }
 
