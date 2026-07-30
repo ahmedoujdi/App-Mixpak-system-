@@ -4,6 +4,7 @@ import { db } from "./firebase.js";
 import { X, Calendar, CheckCircle2, AlertTriangle, Info } from "lucide-react";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
+import { Share } from "@capacitor/share";
 
 // --- PALETA DE COLORES INDUSTRIAL ---
 export const COLORS = {
@@ -71,6 +72,62 @@ export function ToastProvider({ children }) {
 
 export function useToast() {
   return useContext(ToastContext);
+}
+
+// --- FUNCIONES DE RED Y UTILIDADES ASÍNCRONAS ---
+export function withTimeout(promise, ms = 10000) {
+  const timeout = new Promise((_, reject) =>
+    setTimeout(() => reject(new Error("La operación tardó demasiado tiempo")), ms)
+  );
+  return Promise.race([promise, timeout]);
+}
+
+export function compressImage(file, maxWidth = 800, maxHeight = 800, quality = 0.7) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+    reader.onload = (event) => {
+      const img = new Image();
+      img.src = event.target.result;
+      img.onload = () => {
+        const canvas = document.createElement("canvas");
+        let width = img.width;
+        let height = img.height;
+
+        if (width > height) {
+          if (width > maxWidth) {
+            height = Math.round((height * maxWidth) / width);
+            width = maxWidth;
+          }
+        } else {
+          if (height > maxHeight) {
+            width = Math.round((width * maxHeight) / height);
+            height = maxHeight;
+          }
+        }
+
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL("image/jpeg", quality));
+      };
+      img.onerror = (err) => reject(err);
+    };
+    reader.onerror = (err) => reject(err);
+  });
+}
+
+export async function shareText(title, text, url) {
+  try {
+    if (navigator.share) {
+      await navigator.share({ title, text, url });
+    } else {
+      await Share.share({ title, text, url, dialogTitle: title });
+    }
+  } catch (err) {
+    console.log("Compartir cancelado o no soportado:", err);
+  }
 }
 
 // --- GENERADOR DE PDF INDUSTRIAL ---
