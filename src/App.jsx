@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { onAuthStateChanged, signOut, signInWithEmailAndPassword, createUserWithEmailAndPassword } from "firebase/auth";
-import { doc, getDoc, setDoc, serverTimestamp } from "firebase/firestore";
+import { doc, getDoc, setDoc, serverTimestamp, collection, getDocs } from "firebase/firestore";
 import { auth, db } from "./firebase.js";
 import { getRole, roleLabel, canAccess } from "./roles.js";
 
@@ -23,19 +23,33 @@ import {
   UserCheck,
   History,
   LogOut,
-  User,
   Activity,
   Lock,
   Mail,
+  Search,
+  X
 } from "lucide-react";
-import { COLORS, primaryButtonStyle, inputStyle, Field } from "./shared.jsx";
+import { COLORS, primaryButtonStyle, inputStyle, Field, ToastProvider, useToast } from "./shared.jsx";
 
 export default function App() {
+  return (
+    <ToastProvider>
+      <MainApp />
+    </ToastProvider>
+  );
+}
+
+function MainApp() {
   const [user, setUser] = useState(null);
   const [userRole, setUserRole] = useState("operario");
   const [isApproved, setIsApproved] = useState(false);
   const [activeTab, setActiveTab] = useState("dashboard");
   const [loading, setLoading] = useState(true);
+  
+  // Estado para la Modal de Búsqueda Global
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [queryText, setQueryText] = useState("");
+  const [searchResults, setSearchResults] = useState([]);
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (u) => {
@@ -48,7 +62,6 @@ export default function App() {
           setUserRole(getRole(data.role));
           setIsApproved(!!data.aprobado);
         } else {
-          // Si es usuario nuevo
           await setDoc(ref, {
             email: u.email,
             role: "operario",
@@ -66,9 +79,47 @@ export default function App() {
     return unsub;
   }, []);
 
+  // Registrar PWA Service Worker
+  useEffect(() => {
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.register("/sw.js").catch(() => {});
+    }
+  }, []);
+
+  // Función de Búsqueda Global en Firestore
+  async function handleGlobalSearch(text) {
+    setQueryText(text);
+    if (!text.trim()) {
+      setSearchResults([]);
+      return;
+    }
+    const term = text.toLowerCase();
+    const results = [];
+
+    // Buscar en Producción
+    const prodSnap = await getDocs(collection(db, "production_orders"));
+    prodSnap.forEach((d) => {
+      const data = d.data();
+      if (`${data.product} ${data.line}`.toLowerCase().includes(term)) {
+        results.push({ type: "Producción", title: data.product, subtitle: `Línea: ${data.line}` });
+      }
+    });
+
+    // Buscar en Inventario
+    const invSnap = await getDocs(collection(db, "materials"));
+    invSnap.forEach((d) => {
+      const data = d.data();
+      if (`${data.name} ${data.sku}`.toLowerCase().includes(term)) {
+        results.push({ type: "Inventario", title: data.name, subtitle: `SKU: ${data.sku}` });
+      }
+    });
+
+    setSearchResults(results);
+  }
+
   if (loading) {
     return (
-      <div style={{ background: COLORS.bg, minHeight: "100vh", display: "flex", justifyContent: "center", alignItems: "center", color: COLORS.steel, fontFamily: "sans-serif" }}>
+      <div style={{ background: COLORS.bg, minHeight: "100vh", display: "flex", justifyContent: "center", alignItems: "center", color: COLORS.steel }}>
         <Activity className="animate-spin" size={32} />
       </div>
     );
@@ -78,14 +129,12 @@ export default function App() {
 
   if (!isApproved) {
     return (
-      <div style={{ background: COLORS.bg, minHeight: "100vh", display: "flex", justifyContent: "center", alignItems: "center", padding: 20, color: COLORS.text, fontFamily: "sans-serif" }}>
+      <div style={{ background: COLORS.bg, minHeight: "100vh", display: "flex", justifyContent: "center", alignItems: "center", padding: 20, color: COLORS.text }}>
         <div style={{ background: COLORS.panel, border: `1px solid ${COLORS.border}`, padding: 28, borderRadius: 10, maxWidth: 400, textAlign: "center" }}>
           <Lock size={40} color={COLORS.safety} style={{ marginBottom: 12 }} />
           <h2 style={{ margin: "0 0 10px", fontSize: 18 }}>Acceso Pendiente de Aprobación</h2>
-          <p style={{ color: COLORS.textMuted, fontSize: 13, lineHeight: 1.5 }}>
-            Tu cuenta (<strong>{user.email}</strong>) se ha registrado correctamente. Un administrador debe aprobar tu solicitud antes de poder ingresar.
-          </p>
-          <button onClick={() => signOut(auth)} style={{ ...primaryButtonStyle, marginTop: 16, width: "100%", justifyContent: "center", background: "#1e293b" }}>
+          <p style={{ color: COLORS.textMuted, fontSize: 13 }}>Tu cuenta ({user.email}) requiere aprobación de un administrador.</p>
+          <button onClick={() => signOut(auth)} style={{ ...primaryButtonStyle, marginTop: 16, width: "100%", justifyContent: "center" }}>
             <LogOut size={14} /> Cerrar Sesión
           </button>
         </div>
@@ -106,28 +155,28 @@ export default function App() {
   const visibleNav = navItems.filter((i) => canAccess(userRole, i.role));
 
   return (
-    <div style={{ background: COLORS.bg, minHeight: "100vh", color: COLORS.text, fontFamily: "'Inter', system-ui, sans-serif", paddingBottom: 70 }}>
-      {/* HEADER SUPERIOR */}
+    <div style={{ background: COLORS.bg, minHeight: "100vh", color: COLORS.text, fontFamily: "sans-serif", paddingBottom: 70 }}>
+      {/* HEADER SUPERIOR CON BÚSQUEDA GLOBAL */}
       <header style={{ background: COLORS.panel, borderBottom: `1px solid ${COLORS.border}`, padding: "12px 16px", display: "flex", justifyContent: "space-between", alignItems: "center", position: "sticky", top: 0, zIndex: 100 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <div style={{ background: COLORS.steel, width: 28, height: 28, borderRadius: 6, display: "flex", alignItems: "center", justifyContent: "center" }}>
             <Activity size={18} color="#fff" />
           </div>
-          <span style={{ fontWeight: 800, fontSize: 16, letterSpacing: "1px", textTransform: "uppercase" }}>MixPak App</span>
+          <span style={{ fontWeight: 800, fontSize: 16, textTransform: "uppercase" }}>MixPak App</span>
         </div>
 
-        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <div style={{ textAlign: "right", display: "none", smDisplay: "block" }}>
-            <div style={{ fontSize: 12, fontWeight: 600 }}>{user.email}</div>
-            <div style={{ fontSize: 10, color: COLORS.steel, textTransform: "uppercase", fontWeight: 700 }}>{roleLabel(userRole)}</div>
-          </div>
-          <button onClick={() => signOut(auth)} title="Cerrar Sesión" style={{ background: "none", border: `1px solid ${COLORS.border}`, color: COLORS.textMuted, padding: 6, borderRadius: 6, cursor: "pointer" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <button onClick={() => setSearchOpen(true)} style={{ background: "#080c10", border: `1px solid ${COLORS.border}`, color: COLORS.textMuted, padding: "6px 12px", borderRadius: 6, cursor: "pointer", display: "flex", alignItems: "center", gap: 6, fontSize: 12 }}>
+            <Search size={14} /> Buscar algo...
+          </button>
+
+          <button onClick={() => signOut(auth)} style={{ background: "none", border: `1px solid ${COLORS.border}`, color: COLORS.textMuted, padding: 6, borderRadius: 6, cursor: "pointer" }}>
             <LogOut size={16} />
           </button>
         </div>
       </header>
 
-      {/* NAVEGACIÓN DE ESCRITORIO (Pestañas superiores) */}
+      {/* PESTAÑAS SUPERIORES */}
       <nav style={{ background: "#0e141c", borderBottom: `1px solid ${COLORS.border}`, padding: "0 16px", overflowX: "auto", display: "flex", gap: 4 }}>
         {visibleNav.map((item) => {
           const Icon = item.icon;
@@ -149,7 +198,6 @@ export default function App() {
                 alignItems: "center",
                 gap: 8,
                 whiteSpace: "nowrap",
-                transition: "all 0.2s",
               }}
             >
               <Icon size={16} /> {item.label}
@@ -169,7 +217,36 @@ export default function App() {
         {activeTab === "historial" && <Historial user={user} />}
       </main>
 
-      {/* BARRA DE NAVEGACIÓN MÓVIL INFERIOR (BOTTOM NAV) */}
+      {/* MODAL DE BÚSQUEDA GLOBAL */}
+      {searchOpen && (
+        <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0, 0, 0, 0.85)", zIndex: 2000, padding: 20, display: "flex", justifyContent: "center" }}>
+          <div style={{ background: COLORS.panel, border: `1px solid ${COLORS.border}`, width: "100%", maxWidth: 500, height: "fit-content", borderRadius: 8, padding: 16 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+              <span style={{ fontSize: 12, fontWeight: 700, color: COLORS.steel }}>BÚSQUEDA GLOBAL EN PLANTA</span>
+              <button onClick={() => setSearchOpen(false)} style={{ background: "none", border: "none", color: COLORS.textMuted, cursor: "pointer" }}><X size={16} /></button>
+            </div>
+            <input
+              autoFocus
+              value={queryText}
+              onChange={(e) => handleGlobalSearch(e.target.value)}
+              placeholder="Escribe producto, orden o código SKU..."
+              style={{ ...inputStyle, padding: "12px" }}
+            />
+            <div style={{ marginTop: 12, maxHeight: 300, overflowY: "auto", display: "flex", flexDirection: "column", gap: 8 }}>
+              {searchResults.length === 0 && queryText && <div style={{ fontSize: 12, color: COLORS.textMuted }}>Sin resultados encontrados.</div>}
+              {searchResults.map((r, i) => (
+                <div key={i} style={{ background: "#0f1722", padding: 10, borderRadius: 4, border: `1px solid ${COLORS.border}` }}>
+                  <div style={{ fontSize: 10, color: COLORS.steel, fontWeight: 700, textTransform: "uppercase" }}>{r.type}</div>
+                  <div style={{ fontSize: 13, fontWeight: 600 }}>{r.title}</div>
+                  <div style={{ fontSize: 11, color: COLORS.textMuted }}>{r.subtitle}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* BOTTOM NAV MÓVIL */}
       <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, background: COLORS.panel, borderTop: `1px solid ${COLORS.border}`, display: "flex", justifyContent: "space-around", padding: "6px 0", zIndex: 1000 }}>
         {visibleNav.slice(0, 5).map((item) => {
           const Icon = item.icon;
@@ -202,7 +279,6 @@ export default function App() {
   );
 }
 
-// Pantalla de Login / Registro pulida
 function AuthScreen() {
   const [isRegister, setIsRegister] = useState(false);
   const [email, setEmail] = useState("");
@@ -228,7 +304,7 @@ function AuthScreen() {
 
   return (
     <div style={{ background: COLORS.bg, minHeight: "100vh", display: "flex", justifyContent: "center", alignItems: "center", padding: 16 }}>
-      <div style={{ background: COLORS.panel, border: `1px solid ${COLORS.border}`, borderRadius: 12, padding: 28, width: "100%", maxWidth: 360, boxShadow: "0 10px 25px rgba(0,0,0,0.5)" }}>
+      <div style={{ background: COLORS.panel, border: `1px solid ${COLORS.border}`, borderRadius: 12, padding: 28, width: "100%", maxWidth: 360 }}>
         <div style={{ textAlign: "center", marginBottom: 24 }}>
           <div style={{ background: COLORS.steel, width: 42, height: 42, borderRadius: 10, display: "inline-flex", alignItems: "center", justifyContent: "center", marginBottom: 10 }}>
             <Activity size={24} color="#fff" />
@@ -241,19 +317,11 @@ function AuthScreen() {
 
         <form onSubmit={handleSubmit}>
           <Field label="CORREO ELECTRÓNICO">
-            <div style={{ position: "relative" }}>
-              <Mail size={16} color={COLORS.textMuted} style={{ position: "absolute", left: 10, top: 12 }} />
-              <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} style={{ ...inputStyle, paddingLeft: 34 }} placeholder="usuario@empresa.com" />
-            </div>
+            <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} style={inputStyle} placeholder="usuario@empresa.com" />
           </Field>
-
           <Field label="CONTRASEÑA">
-            <div style={{ position: "relative" }}>
-              <Lock size={16} color={COLORS.textMuted} style={{ position: "absolute", left: 10, top: 12 }} />
-              <input type="password" required value={password} onChange={(e) => setPassword(e.target.value)} style={{ ...inputStyle, paddingLeft: 34 }} placeholder="••••••••" />
-            </div>
+            <input type="password" required value={password} onChange={(e) => setPassword(e.target.value)} style={inputStyle} placeholder="••••••••" />
           </Field>
-
           <button type="submit" disabled={loading} style={{ ...primaryButtonStyle, width: "100%", justifyContent: "center", marginTop: 10, height: 42 }}>
             {loading ? "Cargando…" : isRegister ? "Registrarse" : "Ingresar"}
           </button>
