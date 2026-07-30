@@ -1,16 +1,23 @@
-export const ROLES = [
-  { value: "mecanico", label: "Mecánico / Mantenimiento", tabs: ["resumen", "mantenimiento"] },
-  { value: "calidad", label: "Calidad", tabs: ["resumen", "calidad"] },
-  { value: "produccion", label: "Producción", tabs: ["resumen", "produccion"] },
-  { value: "almacen", label: "Almacén / Materiales", tabs: ["resumen", "materiales"] },
-  { value: "supervisor", label: "Supervisor (acceso a todo)", tabs: ["resumen", "mantenimiento", "materiales", "produccion", "calidad", "historial"] },
-  { value: "admin", label: "Administrador (aprueba usuarios, ve todo)", tabs: ["resumen", "mantenimiento", "materiales", "produccion", "calidad", "aprobaciones", "historial"] },
-];
+// src/roles.js
 
-export function roleLabel(value) {
-  return ROLES.find((r) => r.value === value)?.label || value;
+export function roleLabel(role) {
+  switch (role) {
+    case "admin":
+      return "Administrador";
+    case "mantenimiento":
+      return "Técnico Mantenimiento";
+    case "calidad":
+      return "Inspector Calidad";
+    default:
+      return "Operario";
+  }
 }
 
-export function tabsForRole(value) {
-  return ROLES.find((r) => r.value === value)?.tabs || ["resumen"];
+export function getRole(role) {
+  return role || "operario";
+}
+
+export function canAccess(role, requiredRole) {
+  if (role === "admin") return true;
+  return role === requiredRole;
 }
