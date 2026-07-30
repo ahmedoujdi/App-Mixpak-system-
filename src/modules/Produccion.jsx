@@ -1,185 +1,260 @@
-import React, { useState, useMemo } from "react";
-import { Plus, Factory, Search, Edit3, Trash2 } from "lucide-react";
-import { COLORS, primaryButtonStyle, ghostButtonStyle, inputStyle, ModalShell, Field, StatusBadge } from "./shared.jsx";
-import ExportButton from "./ExportModule.jsx";
+import React, { useState, useEffect, useMemo } from "react";
+import {
+  collection,
+  onSnapshot,
+  addDoc,
+  updateDoc,
+  deleteDoc,
+  doc,
+  serverTimestamp,
+  query,
+  orderBy,
+} from "firebase/firestore";
 
-const MOCK_PRODUCTION_DATA = [
-  { id: "prd-1", product: "Detergente Multiusos 1L", client: "Distribuidora Norte", lot: "L-2026-088", line: "Línea 1", shift: "Mañana", targetQty: 5000, producedQty: 4850, scrapQty: 30, status: "completado" },
-  { id: "prd-2", product: "Limpiador de Vidrios 500ml", client: "Supermercados Global", lot: "L-2026-089", line: "Línea 2", shift: "Tarde", targetQty: 10000, producedQty: 6200, scrapQty: 85, status: "en_proceso" },
-  { id: "prd-3", product: "Desengrasante Industrial 5L", client: "Industrias Alfa", lot: "L-2026-090", line: "Línea 1", shift: "Noche", targetQty: 2500, producedQty: 0, scrapQty: 0, status: "programado" },
-];
+// ⚠️ RUTAS CORREGIDAS CON ../
+import { db } from "../firebase.js";
+import {
+  Factory,
+  Plus,
+  Trash2,
+  CheckCircle,
+  Play,
+  Pause,
+  Download,
+  Search,
+} from "lucide-react";
+import {
+  COLORS,
+  inputStyle,
+  selectStyle,
+  primaryButtonStyle,
+  ghostButtonStyle,
+  exportToCsv,
+  logActivity,
+  CenteredMessage,
+  Field,
+  ModalShell,
+  ConfirmDialog,
+  StatCard,
+  EmptyState,
+} from "../shared.jsx";
 
-export default function ProduccionModule({ currentUser, globalSearch = "" }) {
-  const [orders, setOrders] = useState(MOCK_PRODUCTION_DATA);
-  const [searchTerm, setSearchTerm] = useState("");
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [editingItem, setEditingItem] = useState(null);
+const emptyForm = {
+  line: "Línea 1",
+  product: "",
+  targetQty: "",
+  producedQty: "0",
+  status: "planificado", // planificado, en_proceso, pausado, completado
+  notes: "",
+};
 
-  const [formData, setFormData] = useState({
-    product: "", client: "", lot: "", line: "Línea 1", shift: "Mañana", targetQty: 0, producedQty: 0, scrapQty: 0, status: "programado"
-  });
+export default function Produccion({ user }) {
+  const [orders, setOrders] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const [filterStatus, setFilterStatus] = useState("todos");
+  const [confirmDelete, setConfirmDelete] = useState(null);
 
-  const effectiveSearch = globalSearch || searchTerm;
+  useEffect(() => {
+    const q = query(collection(db, "production_orders"), orderBy("createdAt", "desc"));
+    const unsub = onSnapshot(q, (snap) => {
+      setOrders(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+      setLoading(false);
+    });
+    return unsub;
+  }, []);
+
+  async function updateOrderStatus(order, newStatus) {
+    await updateDoc(doc(db, "production_orders", order.id), {
+      status: newStatus,
+      updatedAt: serverTimestamp(),
+    });
+    logActivity(user.email, "Producción", "Cambio de Estado", `Orden ${order.product}: ${order.status} → ${newStatus}`);
+  }
+
+  async function updateProducedQty(order, delta) {
+    const newQty = Math.max(0, Number(order.producedQty || 0) + delta);
+    await updateDoc(doc(db, "production_orders", order.id), {
+      producedQty: newQty,
+      updatedAt: serverTimestamp(),
+    });
+  }
+
+  async function removeOrder(order) {
+    await deleteDoc(doc(db, "production_orders", order.id));
+    logActivity(user.email, "Producción", "Eliminada", `Orden ${order.product}`);
+    setConfirmDelete(null);
+  }
 
   const filteredOrders = useMemo(() => {
-    return orders.filter(o => 
-      o.product.toLowerCase().includes(effectiveSearch.toLowerCase()) ||
-      o.lot.toLowerCase().includes(effectiveSearch.toLowerCase()) ||
-      o.client.toLowerCase().includes(effectiveSearch.toLowerCase())
-    );
-  }, [orders, effectiveSearch]);
+    return orders.filter((o) => {
+      if (filterStatus !== "todos" && o.status !== filterStatus) return false;
+      if (search && !`${o.product} ${o.line}`.toLowerCase().includes(search.toLowerCase())) return false;
+      return true;
+    });
+  }, [orders, filterStatus, search]);
 
-  const kpis = useMemo(() => {
-    const totalTarget = orders.reduce((acc, curr) => acc + Number(curr.targetQty), 0);
-    const totalProduced = orders.reduce((acc, curr) => acc + Number(curr.producedQty), 0);
-    const totalScrap = orders.reduce((acc, curr) => acc + Number(curr.scrapQty), 0);
-    const efficiency = totalTarget > 0 ? Math.round((totalProduced / totalTarget) * 100) : 0;
-    return { totalProduced, totalScrap, efficiency };
+  const stats = useMemo(() => {
+    let active = 0;
+    let completed = 0;
+    orders.forEach((o) => {
+      if (o.status === "en_proceso") active++;
+      if (o.status === "completado") completed++;
+    });
+    return { total: orders.length, active, completed };
   }, [orders]);
 
-  const handleOpenModal = (item = null) => {
-    if (item) {
-      setEditingItem(item);
-      setFormData(item);
-    } else {
-      setEditingItem(null);
-      setFormData({
-        product: "", client: "", lot: `L-2026-09${orders.length + 1}`, line: "Línea 1", shift: "Mañana", targetQty: 1000, producedQty: 0, scrapQty: 0, status: "programado"
-      });
-    }
-    setIsModalOpen(true);
-  };
-
-  const handleSave = (e) => {
-    e.preventDefault();
-    if (editingItem) {
-      setOrders(orders.map(o => o.id === editingItem.id ? { ...formData } : o));
-    } else {
-      setOrders([...orders, { ...formData, id: `prd-${Date.now()}` }]);
-    }
-    setIsModalOpen(false);
-  };
-
-  const handleDelete = (id) => {
-    if (window.confirm("¿Deseas eliminar esta orden de producción?")) {
-      setOrders(orders.filter(o => o.id !== id));
-    }
-  };
-
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "16px" }}>
-        <div>
-          <h1 style={{ margin: 0, fontSize: "22px", fontWeight: "800", color: COLORS.textMain }}>Órdenes de Producción</h1>
-          <p style={{ margin: "4px 0 0 0", fontSize: "13px", color: COLORS.textMuted }}>Seguimiento de lotes, eficiencia de planta y registros de mermas</p>
-        </div>
-
-        <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
-          <ExportButton moduleName="Producción" data={filteredOrders} userEmail={currentUser?.email || "operaciones@mixpak.com"} search={effectiveSearch} />
-          <button onClick={() => handleOpenModal()} style={primaryButtonStyle}>
-            <Plus size={16} /> Nueva Orden
-          </button>
-        </div>
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12, marginBottom: 18 }}>
+        <h1 style={{ fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 20, textTransform: "uppercase", margin: 0 }}>
+          Órdenes de Producción
+        </h1>
+        <button onClick={() => setModalOpen(true)} style={primaryButtonStyle}>
+          <Plus size={16} /> Nueva Orden
+        </button>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "14px" }}>
-        <div style={kpiCardStyle}>
-          <div style={{ fontSize: "12px", color: COLORS.textMuted, fontWeight: "600" }}>Total Producido</div>
-          <div style={{ fontSize: "24px", fontWeight: "800", color: COLORS.primary, marginTop: "4px" }}>{kpis.totalProduced.toLocaleString()} un.</div>
-        </div>
-        <div style={kpiCardStyle}>
-          <div style={{ fontSize: "12px", color: COLORS.textMuted, fontWeight: "600" }}>Total Scrap / Mermas</div>
-          <div style={{ fontSize: "24px", fontWeight: "800", color: COLORS.danger, marginTop: "4px" }}>{kpis.totalScrap.toLocaleString()} un.</div>
-        </div>
-        <div style={kpiCardStyle}>
-          <div style={{ fontSize: "12px", color: COLORS.textMuted, fontWeight: "600" }}>Eficiencia Global</div>
-          <div style={{ fontSize: "24px", fontWeight: "800", color: COLORS.success, marginTop: "4px" }}>{kpis.efficiency}%</div>
-        </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10, marginBottom: 20 }}>
+        <StatCard label="Total Órdenes" value={stats.total} color={COLORS.steel} Icon={Factory} />
+        <StatCard label="En Proceso" value={stats.active} color={COLORS.safety} Icon={Play} />
+        <StatCard label="Completadas" value={stats.completed} color={COLORS.green} Icon={CheckCircle} />
       </div>
 
-      <div style={{ backgroundColor: COLORS.cardBg, border: `1px solid ${COLORS.cardBorder}`, borderRadius: "12px", overflow: "hidden" }}>
-        <table style={{ width: "100%", borderCollapse: "collapse", textAlign: "left", fontSize: "13px" }}>
-          <thead>
-            <tr style={{ backgroundColor: "rgba(255, 255, 255, 0.02)", borderBottom: `1px solid ${COLORS.cardBorder}` }}>
-              <th style={thStyle}>Lote / Producto</th>
-              <th style={thStyle}>Cliente</th>
-              <th style={thStyle}>Línea & Turno</th>
-              <th style={thStyle}>Objetivo</th>
-              <th style={thStyle}>Producido</th>
-              <th style={thStyle}>Scrap</th>
-              <th style={thStyle}>Estado</th>
-              <th style={{ ...thStyle, textAlign: "right" }}>Acciones</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filteredOrders.map(o => (
-              <tr key={o.id} style={{ borderBottom: `1px solid ${COLORS.cardBorder}` }}>
-                <td style={tdStyle}>
-                  <div style={{ fontWeight: "700", color: COLORS.primary }}>{o.lot}</div>
-                  <div style={{ fontWeight: "600" }}>{o.product}</div>
-                </td>
-                <td style={tdStyle}>{o.client}</td>
-                <td style={tdStyle}>{o.line} ({o.shift})</td>
-                <td style={tdStyle}>{o.targetQty}</td>
-                <td style={{ ...tdStyle, fontWeight: "700" }}>{o.producedQty}</td>
-                <td style={{ ...tdStyle, color: COLORS.danger }}>{o.scrapQty}</td>
-                <td style={tdStyle}>
-                  {o.status === "completado" && <StatusBadge status="COMPLETADO" type="success" />}
-                  {o.status === "en_proceso" && <StatusBadge status="EN PROCESO" type="info" />}
-                  {o.status === "programado" && <StatusBadge status="PROGRAMADO" type="warning" />}
-                </td>
-                <td style={{ ...tdStyle, textAlign: "right" }}>
-                  <div style={{ display: "inline-flex", gap: "6px" }}>
-                    <button onClick={() => handleOpenModal(o)} style={actionBtnStyle}><Edit3 size={14} /></button>
-                    <button onClick={() => handleDelete(o.id)} style={{ ...actionBtnStyle, color: COLORS.danger }}><Trash2 size={14} /></button>
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 18, alignItems: "center" }}>
+        <div style={{ position: "relative", flex: "1 1 200px" }}>
+          <Search size={14} color={COLORS.textMuted} style={{ position: "absolute", left: 9, top: 11 }} />
+          <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar por producto o línea..." style={{ ...inputStyle, paddingLeft: 30 }} />
+        </div>
+        <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)} style={{ ...selectStyle, width: "auto" }}>
+          <option value="todos">Todos los estados</option>
+          <option value="planificado">Planificado</option>
+          <option value="en_proceso">En Proceso</option>
+          <option value="pausado">Pausado</option>
+          <option value="completado">Completado</option>
+        </select>
+        <button
+          onClick={() => exportToCsv("ordenes-produccion", filteredOrders.map((o) => ({
+            linea: o.line, producto: o.product, meta: o.targetQty, producido: o.producedQty, estado: o.status
+          })))}
+          style={ghostButtonStyle}
+        >
+          <Download size={16} /> Exportar
+        </button>
+      </div>
+
+      {loading ? (
+        <CenteredMessage text="Cargando órdenes de producción…" />
+      ) : orders.length === 0 ? (
+        <EmptyState Icon={Factory} title="Sin órdenes activas" message="Crea una nueva orden de producción para comenzar." onAdd={() => setModalOpen(true)} addLabel="Nueva Orden" />
+      ) : (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 14 }}>
+          {filteredOrders.map((order) => {
+            const progress = order.targetQty ? Math.min(100, Math.round((Number(order.producedQty || 0) / Number(order.targetQty)) * 100)) : 0;
+            return (
+              <div key={order.id} style={{ background: COLORS.panel, border: `1px solid ${COLORS.border}`, borderRadius: 6, padding: 16 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: COLORS.steel, textTransform: "uppercase" }}>{order.line}</span>
+                  <button onClick={() => setConfirmDelete(order)} style={{ background: "none", border: "none", color: COLORS.textMuted, cursor: "pointer" }}>
+                    <Trash2 size={14} />
+                  </button>
+                </div>
+                <h3 style={{ fontSize: 16, margin: "0 0 10px", fontWeight: 600 }}>{order.product}</h3>
+
+                <div style={{ marginBottom: 12 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: COLORS.textMuted, marginBottom: 4 }}>
+                    <span>Progreso: {progress}%</span>
+                    <span>{order.producedQty || 0} / {order.targetQty || 0} u.</span>
                   </div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+                  <div style={{ background: "#0f1722", height: 6, borderRadius: 3, overflow: "hidden" }}>
+                    <div style={{ background: progress >= 100 ? COLORS.green : COLORS.steel, width: `${progress}%`, height: "100%" }} />
+                  </div>
+                </div>
 
-      {isModalOpen && (
-        <ModalShell onClose={() => setIsModalOpen(false)} title={editingItem ? `Editar Orden ${editingItem.lot}` : "Crear Orden de Producción"}>
-          <form onSubmit={handleSave} style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
-              <Field label="Lote de Producción">
-                <input type="text" value={formData.lot} onChange={e => setFormData({ ...formData, lot: e.target.value })} style={inputStyle} required />
-              </Field>
-              <Field label="Cliente">
-                <input type="text" value={formData.client} onChange={e => setFormData({ ...formData, client: e.target.value })} style={inputStyle} required />
-              </Field>
-            </div>
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 12 }}>
+                  {order.status !== "en_proceso" && (
+                    <button onClick={() => updateOrderStatus(order, "en_proceso")} style={{ ...ghostButtonStyle, color: COLORS.green }}>
+                      <Play size={12} /> Iniciar
+                    </button>
+                  )}
+                  {order.status === "en_proceso" && (
+                    <button onClick={() => updateOrderStatus(order, "pausado")} style={{ ...ghostButtonStyle, color: COLORS.safety }}>
+                      <Pause size={12} /> Pausar
+                    </button>
+                  )}
+                  {order.status !== "completado" && (
+                    <button onClick={() => updateOrderStatus(order, "completado")} style={{ ...ghostButtonStyle, color: COLORS.steel }}>
+                      <CheckCircle size={12} /> Finalizar
+                    </button>
+                  )}
+                  <div style={{ marginLeft: "auto", display: "flex", gap: 4 }}>
+                    <button onClick={() => updateProducedQty(order, -10)} style={ghostButtonStyle}>-10</button>
+                    <button onClick={() => updateProducedQty(order, 10)} style={ghostButtonStyle}>+10</button>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
 
-            <Field label="Producto A Fabricar">
-              <input type="text" value={formData.product} onChange={e => setFormData({ ...formData, product: e.target.value })} style={inputStyle} required />
-            </Field>
-
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "10px" }}>
-              <Field label="Objetivo">
-                <input type="number" value={formData.targetQty} onChange={e => setFormData({ ...formData, targetQty: Number(e.target.value) })} style={inputStyle} required />
-              </Field>
-              <Field label="Producido">
-                <input type="number" value={formData.producedQty} onChange={e => setFormData({ ...formData, producedQty: Number(e.target.value) })} style={inputStyle} required />
-              </Field>
-              <Field label="Scrap / Mermas">
-                <input type="number" value={formData.scrapQty} onChange={e => setFormData({ ...formData, scrapQty: Number(e.target.value) })} style={inputStyle} required />
-              </Field>
-            </div>
-
-            <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px", marginTop: "12px" }}>
-              <button type="button" onClick={() => setIsModalOpen(false)} style={ghostButtonStyle}>Cancelar</button>
-              <button type="submit" style={primaryButtonStyle}>Guardar Orden</button>
-            </div>
-          </form>
-        </ModalShell>
+      {modalOpen && <OrderModal user={user} onClose={() => setModalOpen(false)} />}
+      {confirmDelete && (
+        <ConfirmDialog
+          title="Eliminar Orden"
+          message="¿Seguro que deseas eliminar esta orden de producción?"
+          onCancel={() => setConfirmDelete(null)}
+          onConfirm={() => removeOrder(confirmDelete)}
+        />
       )}
     </div>
   );
 }
 
-const kpiCardStyle = { backgroundColor: COLORS.cardBg, border: `1px solid ${COLORS.cardBorder}`, borderRadius: "12px", padding: "16px" };
-const thStyle = { padding: "12px 16px", fontWeight: "600", fontSize: "12px", color: COLORS.textMuted };
-const tdStyle = { padding: "12px 16px", color: COLORS.textMain };
-const actionBtnStyle = { backgroundColor: "transparent", border: `1px solid ${COLORS.cardBorder}`, borderRadius: "6px", color: COLORS.textMuted, cursor: "pointer", padding: "6px", display: "inline-flex" };
+function OrderModal({ user, onClose }) {
+  const [form, setForm] = useState(emptyForm);
+  const [saving, setSaving] = useState(false);
+
+  async function submit(e) {
+    e.preventDefault();
+    if (!form.product.trim()) return;
+    setSaving(true);
+    try {
+      await addDoc(collection(db, "production_orders"), {
+        ...form,
+        targetQty: Number(form.targetQty) || 0,
+        producedQty: Number(form.producedQty) || 0,
+        createdAt: serverTimestamp(),
+      });
+      logActivity(user.email, "Producción", "Nueva Orden", form.product);
+      onClose();
+    } catch (err) {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <ModalShell onClose={onClose} title="Nueva Orden de Producción">
+      <form onSubmit={submit}>
+        <Field label="Línea de Producción">
+          <select value={form.line} onChange={(e) => setForm({ ...form, line: e.target.value })} style={selectStyle}>
+            <option value="Línea 1">Línea 1</option>
+            <option value="Línea 2">Línea 2</option>
+            <option value="Línea 3">Línea 3</option>
+            <option value="Empaque">Empaque</option>
+          </select>
+        </Field>
+        <Field label="Producto *">
+          <input required value={form.product} onChange={(e) => setForm({ ...form, product: e.target.value })} style={inputStyle} placeholder="Nombre o SKU del producto" />
+        </Field>
+        <Field label="Meta de producción (Unidades)">
+          <input type="number" required value={form.targetQty} onChange={(e) => setForm({ ...form, targetQty: e.target.value })} style={inputStyle} placeholder="1000" />
+        </Field>
+        <button type="submit" disabled={saving} style={{ ...primaryButtonStyle, width: "100%", justifyContent: "center", marginTop: 10 }}>
+          {saving ? "Guardando…" : "Crear Orden"}
+        </button>
+      </form>
+    </ModalShell>
+  );
+}
