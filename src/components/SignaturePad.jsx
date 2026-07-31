@@ -7,12 +7,21 @@ export default function SignaturePad({ onSave, onCancel }) {
   const [isDrawing, setIsDrawing] = useState(false);
   const [isEmpty, setIsEmpty] = useState(true);
 
+  const getCoordinates = (e) => {
+    const canvas = canvasRef.current;
+    const rect = canvas.getBoundingClientRect();
+    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+    return {
+      x: clientX - rect.left,
+      y: clientY - rect.top,
+    };
+  };
+
   const startDrawing = (e) => {
+    const { x, y } = getCoordinates(e);
     const canvas = canvasRef.current;
     const ctx = canvas.getContext("2d");
-    const rect = canvas.getBoundingClientRect();
-    const x = (e.clientX || e.touches?.[0]?.clientX) - rect.left;
-    const y = (e.clientY || e.touches?.[0]?.clientY) - rect.top;
 
     ctx.beginPath();
     ctx.moveTo(x, y);
@@ -25,11 +34,9 @@ export default function SignaturePad({ onSave, onCancel }) {
 
   const draw = (e) => {
     if (!isDrawing) return;
+    const { x, y } = getCoordinates(e);
     const canvas = canvasRef.current;
     const ctx = canvas.getContext("2d");
-    const rect = canvas.getBoundingClientRect();
-    const x = (e.clientX || e.touches?.[0]?.clientX) - rect.left;
-    const y = (e.clientY || e.touches?.[0]?.clientY) - rect.top;
 
     ctx.lineTo(x, y);
     ctx.stroke();
@@ -49,20 +56,19 @@ export default function SignaturePad({ onSave, onCancel }) {
   const handleSave = () => {
     if (isEmpty) return;
     const canvas = canvasRef.current;
-    const dataUrl = canvas.toDataURL("image/png");
-    onSave(dataUrl);
+    onSave(canvas.toDataURL("image/png"));
   };
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
       <label style={{ fontSize: 11, fontWeight: 700, color: COLORS.textMuted }}>
-        FIRMA DEL TÉCNICO / RESPONSABLE
+        FIRMA DE CONFORMIDAD DEL TÉCNICO
       </label>
       <div style={{ border: `1px solid ${COLORS.border}`, borderRadius: 8, background: "#080c10", overflow: "hidden" }}>
         <canvas
           ref={canvasRef}
           width={400}
-          height={180}
+          height={160}
           onMouseDown={startDrawing}
           onMouseMove={draw}
           onMouseUp={stopDrawing}
@@ -70,7 +76,7 @@ export default function SignaturePad({ onSave, onCancel }) {
           onTouchStart={startDrawing}
           onTouchMove={draw}
           onTouchEnd={stopDrawing}
-          style={{ width: "100%", height: 180, touchAction: "none", cursor: "crosshair" }}
+          style={{ width: "100%", height: 160, touchAction: "none", cursor: "crosshair" }}
         />
       </div>
       <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
@@ -89,7 +95,7 @@ export default function SignaturePad({ onSave, onCancel }) {
             disabled={isEmpty}
             style={{ ...primaryButtonStyle, opacity: isEmpty ? 0.5 : 1 }}
           >
-            <Check size={14} /> Guardar Firma
+            <Check size={14} /> Confirmar Firma
           </button>
         </div>
       </div>
