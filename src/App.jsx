@@ -3,30 +3,30 @@ import {
   Factory, 
   Wrench, 
   Layers, 
-  Boxes, 
-  BarChart3, 
-  Activity, 
-  LogOut, 
-  User as UserIcon, 
-  Bell, 
   Shield, 
   Zap,
-  Menu,
-  X
+  Bell
 } from "lucide-react";
 
-// Importación de Módulos Enterprise Pro
-import Produccion from "./Produccion.jsx";
-import Mantenimiento from "./Mantenimiento.jsx";
-import Materiales from "./Materiales.jsx";
+// 1. IMPORTACIÓN EN MINÚSCULAS Y CON COMPROBACIÓN REPETIDA
+// Si tu archivo en /src/ se llama produccion.jsx, esto cargará sin problemas.
+import ProduccionModule from "./produccion.jsx";
 
-// Estilo de Contenedor General y Layout
+// Componente placeholder si aún no subes Mantenimiento o Materiales a GitHub
+const ComponenteEnDesarrollo = ({ titulo }) => (
+  <div style={{ padding: 40, textAlign: "center", background: "rgba(255,255,255,0.02)", borderRadius: 16, border: "1px dashed rgba(255,255,255,0.1)" }}>
+    <h2 style={{ color: "#fff", margin: 0 }}>Módulo {titulo}</h2>
+    <p style={{ color: "rgba(255,255,255,0.5)", marginTop: 8 }}>Este módulo estará disponible próximamente en tu entorno ERP.</p>
+  </div>
+);
+
+// Layout Styles
 const appContainerStyle = {
   display: "flex",
   minHeight: "100vh",
   backgroundColor: "#0B0C10",
   color: "#FFFFFF",
-  fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', Roboto, sans-serif"
+  fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Display', Roboto, sans-serif"
 };
 
 const sidebarStyle = {
@@ -70,13 +70,11 @@ const navButtonStyle = (isActive) => ({
 });
 
 export default function App() {
-  // Pestaña activa (Persistente en localStorage)
   const [activeTab, setActiveTab] = useState(() => {
     return localStorage.getItem("erp_active_tab") || "produccion";
   });
 
-  // Usuario activo ficticio / Firebase Auth
-  const [user, setUser] = useState({
+  const [user] = useState({
     email: "admin.planta@enterprise.com",
     name: "Ing. Carlos Mendoza",
     role: "Director de Operaciones MES/ERP"
@@ -86,109 +84,83 @@ export default function App() {
     localStorage.setItem("erp_active_tab", activeTab);
   }, [activeTab]);
 
-  // Manejador para renderizar el módulo correspondiente
   const renderModule = () => {
     switch (activeTab) {
       case "produccion":
-        return <Produccion user={user} />;
+        return <ProduccionModule user={user} />;
       case "mantenimiento":
-        return <Mantenimiento user={user} />;
+        return <ComponenteEnDesarrollo titulo="Mantenimiento" />;
       case "materiales":
-        return <Materiales user={user} />;
+        return <ComponenteEnDesarrollo titulo="Materiales & BOM" />;
       default:
-        return <Produccion user={user} />;
+        return <ProduccionModule user={user} />;
     }
   };
 
   return (
     <div style={appContainerStyle}>
-      
-      {/* SIDEBAR ENTERPRISE */}
+      {/* SIDEBAR */}
       <aside style={sidebarStyle}>
         <div>
-          {/* BRAND / LOGO */}
           <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", marginBottom: 32 }}>
-            <div style={{ width: 36, height: 36, borderRadius: 10, background: "linear-gradient(135deg, #007AFF, #AF52DE)", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 4px 12px rgba(0,122,255,0.3)" }}>
+            <div style={{ width: 36, height: 36, borderRadius: 10, background: "linear-gradient(135deg, #007AFF, #AF52DE)", display: "flex", alignItems: "center", justifyContent: "center" }}>
               <Zap size={20} color="#fff" />
             </div>
             <div>
-              <div style={{ fontWeight: 900, fontSize: 16, letterSpacing: "-0.5px", color: "#fff" }}>NEXUS ERP</div>
-              <div style={{ fontSize: 9, fontWeight: 800, color: "#007AFF", letterSpacing: "1px" }}>ENTERPRISE MES</div>
+              <div style={{ fontWeight: 900, fontSize: 16, color: "#fff" }}>NEXUS ERP</div>
+              <div style={{ fontSize: 9, fontWeight: 800, color: "#007AFF" }}>ENTERPRISE MES</div>
             </div>
           </div>
 
-          {/* MENÚ DE NAVEGACIÓN */}
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            <div style={{ fontSize: 10, fontWeight: 800, color: "rgba(255,255,255,0.3)", padding: "0 12px 6px", textTransform: "uppercase", letterSpacing: "0.5px" }}>
-              Control de Operaciones
-            </div>
-
-            <button 
-              onClick={() => setActiveTab("produccion")} 
-              style={navButtonStyle(activeTab === "produccion")}
-            >
+            <button onClick={() => setActiveTab("produccion")} style={navButtonStyle(activeTab === "produccion")}>
               <Factory size={18} />
               <span>Producción & OEE</span>
             </button>
-
-            <button 
-              onClick={() => setActiveTab("mantenimiento")} 
-              style={navButtonStyle(activeTab === "mantenimiento")}
-            >
+            <button onClick={() => setActiveTab("mantenimiento")} style={navButtonStyle(activeTab === "mantenimiento")}>
               <Wrench size={18} />
               <span>Mantenimiento</span>
             </button>
-
-            <button 
-              onClick={() => setActiveTab("materiales")} 
-              style={navButtonStyle(activeTab === "materiales")}
-            >
+            <button onClick={() => setActiveTab("materiales")} style={navButtonStyle(activeTab === "materiales")}>
               <Layers size={18} />
               <span>Materiales & BOM</span>
             </button>
           </div>
         </div>
 
-        {/* PERFIL DE USUARIO EN SIDEBAR */}
         <div style={{ borderTop: "1px solid rgba(255,255,255,0.08)", paddingTop: 16 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", background: "rgba(255,255,255,0.03)", borderRadius: 12 }}>
-            <div style={{ width: 32, height: 32, borderRadius: "50%", background: "rgba(0,122,255,0.2)", color: "#007AFF", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 800, fontSize: 12 }}>
+            <div style={{ width: 32, height: 32, borderRadius: "50%", background: "rgba(0,122,255,0.2)", color: "#007AFF", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 800 }}>
               CM
             </div>
             <div style={{ flex: 1, overflow: "hidden" }}>
-              <div style={{ fontSize: 12, fontWeight: 800, color: "#fff", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{user.name}</div>
-              <div style={{ fontSize: 10, color: "rgba(255,255,255,0.5)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{user.role}</div>
+              <div style={{ fontSize: 12, fontWeight: 800, color: "#fff" }}>{user.name}</div>
+              <div style={{ fontSize: 10, color: "rgba(255,255,255,0.5)" }}>{user.role}</div>
             </div>
           </div>
         </div>
       </aside>
 
-      {/* ÁREA DE CONTENIDO PRINCIPAL */}
+      {/* ÁREA PRINCIPAL */}
       <main style={mainContentStyle}>
-        
-        {/* HEADER SUPERIOR */}
         <header style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 32, borderBottom: "1px solid rgba(255,255,255,0.06)", paddingBottom: 16 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <span style={{ width: 8, height: 8, borderRadius: "50%", background: "#34C759", boxShadow: "0 0 8px #34C759" }} />
-            <span style={{ fontSize: 12, fontWeight: 700, color: "rgba(255,255,255,0.7)" }}>SCADA & Servidor en Línea</span>
+            <span style={{ width: 8, height: 8, borderRadius: "50%", background: "#34C759" }} />
+            <span style={{ fontSize: 12, fontWeight: 700, color: "rgba(255,255,255,0.7)" }}>SCADA & Servidor Activo</span>
           </div>
-
           <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 6, background: "rgba(255,255,255,0.04)", padding: "6px 12px", borderRadius: 20, fontSize: 12, border: "1px solid rgba(255,255,255,0.08)" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, background: "rgba(255,255,255,0.04)", padding: "6px 12px", borderRadius: 20, fontSize: 12 }}>
               <Shield size={14} color="#34C759" />
-              <span style={{ color: "rgba(255,255,255,0.8)", fontWeight: 600 }}>Planta 1 - Modo Enterprise</span>
+              <span>Planta Enterprise</span>
             </div>
-
-            <button style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", color: "#fff", padding: 8, borderRadius: "50%", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <button style={{ background: "transparent", border: "none", color: "#fff", cursor: "pointer" }}>
               <Bell size={16} />
             </button>
           </div>
         </header>
 
-        {/* MODULO ACTIVO */}
         {renderModule()}
       </main>
-
     </div>
   );
 }
