@@ -1,232 +1,325 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { collection, onSnapshot, query, orderBy, limit } from "firebase/firestore";
-import { db } from "../firebase.js";
-import { Activity, Search, Download, History, User, Calendar, Layers, ShieldCheck, CheckCircle2 } from "lucide-react";
-import { inputStyle, ghostButtonStyle, exportToCsv, DateRangeFilter, inDateRange, CenteredMessage, EmptyState } from "../shared.jsx";
+import { db } from "./firebase.js";
+import { 
+  History, 
+  Search, 
+  Download, 
+  Filter, 
+  ShieldAlert, 
+  Activity, 
+  User, 
+  Clock, 
+  Layers, 
+  CheckCircle2, 
+  AlertTriangle, 
+  KeyRound, 
+  FileSpreadsheet,
+  Terminal,
+  Cpu,
+  Eye,
+  RefreshCw
+} from "lucide-react";
+import { 
+  primaryButtonStyle, 
+  ghostButtonStyle, 
+  secondaryButtonStyle, 
+  inputStyle, 
+  CenteredMessage, 
+  EmptyState, 
+  ModalShell, 
+  exportToCsv, 
+  inDateRange, 
+  DateRangeFilter, 
+  formatTimestamp 
+} from "./shared.jsx";
 
-const MODULES = [
-  { value: "todos", label: "Todos los Módulos" },
-  { value: "Materiales", label: "Materiales" },
-  { value: "Calidad", label: "Calidad" },
-  { value: "Aprobaciones", label: "Aprobaciones" },
-  { value: "Sistema", label: "Sistema" },
-];
-
-export default function Historial() {
+export default function Historial({ user }) {
   const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [filterModule, setFilterModule] = useState("todos");
-  const [search, setSearch] = useState("");
-  const [dateFrom, setDateFrom] = useState("");
-  const [dateTo, setDateTo] = useState("");
   const [limitCount, setLimitCount] = useState(100);
+  
+  // Filtros de Auditoría
+  const [searchTerm, setSearchTerm] = useState("");
+  const [filterModule, setFilterModule] = useState("todos");
+  const [filterSeverity, setFilterSeverity] = useState("todos"); // "todos" | "info" | "warning" | "critical" | "signature"
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
 
+  // Estado para Inspección de Payload en Modal
+  const [selectedLog, setSelectedLog] = useState(null);
+
+  // Carga en tiempo real de los Registros de Actividad de Firestore
   useEffect(() => {
     const q = query(
-      collection(db, "activity_logs"),
-      orderBy("timestamp", "desc"),
+      collection(db, "activity_logs"), 
+      orderBy("timestamp", "desc"), 
       limit(limitCount)
     );
 
     const unsub = onSnapshot(q, (snap) => {
-      setLogs(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+      const docs = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      setLogs(docs);
       setLoading(false);
     });
 
-    return unsub;
+    return () => unsub();
   }, [limitCount]);
 
-  const filtered = useMemo(() => {
+  // Filtrado de Logs en Cliente
+  const filteredLogs = useMemo(() => {
     return logs.filter((log) => {
-      if (filterModule !== "todos" && log.module !== filterModule) return false;
-      if (!inDateRange(log.timestamp, dateFrom, dateTo)) return false;
+      const matchesModule = filterModule === "todos" || log.module === filterModule;
+      
+      // Clasificación de Severidad Dinámica basada en Acción/Detalles
+      let severity = "info";
+      const actionText = `${log.action} ${log.details}`.toLowerCase();
+      if (actionText.includes("firma") || actionText.includes("aprobado")) severity = "signature";
+      else if (actionText.includes("no conformidad") || actionText.includes("falla") || actionText.includes("rechazado")) severity = "critical";
+      else if (actionText.includes("edicion") || actionText.includes("modificacion") || actionText.includes("stock bajo")) severity = "warning";
 
-      const term = search.toLowerCase();
-      const matchSearch =
-        `${log.user || ""} ${log.action || ""} ${log.module || ""} ${log.target || ""} ${log.details || ""}`
-          .toLowerCase()
-          .includes(term);
+      const matchesSeverity = filterSeverity === "todos" || severity === filterSeverity;
 
-      return matchSearch;
+      const matchesSearch = 
+        (log.action || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (log.details || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (log.user || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (log.module || "").toLowerCase().includes(searchTerm.toLowerCase());
+
+      const matchesDate = inDateRange(log.timestamp, fromDate, toDate);
+
+      return matchesModule && matchesSeverity && matchesSearch && matchesDate;
     });
-  }, [logs, filterModule, search, dateFrom, dateTo]);
+  }, [logs, filterModule, filterSeverity, searchTerm, fromDate, toDate]);
 
-  const stats = useMemo(() => {
+  // Métricas de Auditoría en Tiempo Real
+  const metrics = useMemo(() => {
     const total = logs.length;
-    const porModulo = logs.reduce((acc, log) => {
-      const mod = log.module || "Otros";
+    const signatures = logs.filter((l) => (l.action || "").toLowerCase().includes("firma") || (l.action || "").toLowerCase().includes("aprobado")).length;
+    const criticalEvents = logs.filter((l) => (l.action || "").toLowerCase().includes("no conformidad") || (l.details || "").toLowerCase().includes("falla")).length;
+    
+    // Contorno por Módulo
+    const modulesCount = logs.reduce((acc, curr) => {
+      const mod = curr.module || "General";
       acc[mod] = (acc[mod] || 0) + 1;
       return acc;
     }, {});
-    return { total, porModulo };
+
+    return { total, signatures, criticalEvents, modulesCount };
   }, [logs]);
 
+  if (loading) {
+    return <CenteredMessage text="Accediendo al Registro Inmutable de Auditoría SCADA..." />;
+  }
+
   return (
-    <div style={{ maxWidth: 1200, margin: "0 auto", paddingBottom: 40 }}>
-      {/* Header */}
+    <div style={{ maxWidth: 1350, margin: "0 auto", paddingBottom: 50 }}>
+      
+      {/* HEADER PRINCIPAL */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24, flexWrap: "wrap", gap: 16 }}>
         <div>
-          <span style={{ background: "rgba(88, 86, 214, 0.15)", color: "#5856D6", padding: "4px 8px", borderRadius: 6, fontSize: 12, fontWeight: 700, letterSpacing: 1 }}>
-            AUDIT TRAIL & LOGS
-          </span>
-          <h1 style={{ fontSize: 28, fontWeight: 800, margin: "6px 0 0", letterSpacing: "-0.5px" }}>Historial de Actividad</h1>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+            <span style={{ background: "rgba(88,86,214,0.15)", color: "#5856D6", fontSize: 10, fontWeight: 900, padding: "2px 8px", borderRadius: 4 }}>
+              TRAZABILIDAD ISO 27001 & REGISTROS DE SEGURIDAD
+            </span>
+          </div>
+          <h1 style={{ fontSize: 26, fontWeight: 900, margin: 0, color: "#fff", letterSpacing: "-0.5px" }}>
+            Historial & Bitácora de Auditoría
+          </h1>
+          <p style={{ margin: "4px 0 0", fontSize: 13, color: "rgba(255,255,255,0.6)" }}>
+            Monitoreo en tiempo real de transacciones, firmas digitales, modificaciones de stock y eventos del sistema.
+          </p>
+        </div>
+
+        <div style={{ display: "flex", gap: 10 }}>
+          <button onClick={() => exportToCsv("auditoria_planta_enterprise", filteredLogs)} style={ghostButtonStyle}>
+            <Download size={16} /> Exportar Registro CSV
+          </button>
         </div>
       </div>
 
-      {/* KPI Cards */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 14, marginBottom: 28 }}>
-        <KpiCard label="Registros Cargados" value={stats.total} icon={History} accentColor="#5856D6" />
-        <KpiCard label="Eventos en Materiales" value={stats.porModulo["Materiales"] || 0} icon={Layers} accentColor="#007AFF" />
-        <KpiCard label="Eventos en Calidad" value={stats.porModulo["Calidad"] || 0} icon={ShieldCheck} accentColor="#FF3B30" />
-        <KpiCard label="Aprobaciones / Firmas" value={stats.porModulo["Aprobaciones"] || 0} icon={CheckCircle2} accentColor="#34C759" />
+      {/* STRIP DE KPIS AUDITORÍA */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 16, marginBottom: 24 }}>
+        <div style={{ background: "rgba(88, 86, 214, 0.08)", border: "1px solid rgba(88, 86, 214, 0.2)", borderRadius: 16, padding: "18px 20px" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <span style={{ fontSize: 11, fontWeight: 800, color: "#5856D6" }}>EVENTOS REGISTRADOS</span>
+            <History size={18} color="#5856D6" />
+          </div>
+          <div style={{ fontSize: 28, fontWeight: 900, color: "#fff", marginTop: 6 }}>{metrics.total}</div>
+          <div style={{ fontSize: 11, color: "rgba(255,255,255,0.5)", marginTop: 4 }}>Muestra actual en memoria</div>
+        </div>
+
+        <div style={{ background: "rgba(52, 199, 89, 0.08)", border: "1px solid rgba(52, 199, 89, 0.2)", borderRadius: 16, padding: "18px 20px" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <span style={{ fontSize: 11, fontWeight: 800, color: "#34C759" }}>FIRMAS DIGITALES</span>
+            <KeyRound size={18} color="#34C759" />
+          </div>
+          <div style={{ fontSize: 28, fontWeight: 900, color: "#fff", marginTop: 6 }}>{metrics.signatures}</div>
+          <div style={{ fontSize: 11, color: "rgba(255,255,255,0.5)", marginTop: 4 }}>Aprobaciones autorizadas</div>
+        </div>
+
+        <div style={{ background: "rgba(255, 59, 48, 0.08)", border: "1px solid rgba(255, 59, 48, 0.2)", borderRadius: 16, padding: "18px 20px" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <span style={{ fontSize: 11, fontWeight: 800, color: "#FF3B30" }}>ALERTAS / DESVIACIONES</span>
+            <AlertTriangle size={18} color="#FF3B30" />
+          </div>
+          <div style={{ fontSize: 28, fontWeight: 900, color: "#fff", marginTop: 6 }}>{metrics.criticalEvents}</div>
+          <div style={{ fontSize: 11, color: "rgba(255,255,255,0.5)", marginTop: 4 }}>Eventos de falla o CAPA</div>
+        </div>
       </div>
 
-      {/* Filtros y Toolbar */}
-      <div style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 14, padding: 12, marginBottom: 24, display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
-        <div style={{ position: "relative", flex: "1 1 240px" }}>
+      {/* FILTROS AVANZADOS & CANTIDAD DE REGISTROS */}
+      <div 
+        style={{ 
+          background: "rgba(255,255,255,0.02)", 
+          border: "1px solid rgba(255,255,255,0.06)", 
+          borderRadius: 16, 
+          padding: 16, 
+          marginBottom: 20,
+          display: "flex",
+          gap: 12,
+          flexWrap: "wrap",
+          alignItems: "center",
+          justifyContent: "space-between"
+        }}
+      >
+        <div style={{ position: "relative", flex: 1, minWidth: 260 }}>
           <Search size={16} color="rgba(255,255,255,0.4)" style={{ position: "absolute", left: 12, top: 12 }} />
-          <input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Buscar por usuario, acción, detalle..."
-            style={{ ...inputStyle, paddingLeft: 36, borderRadius: 8, background: "rgba(0,0,0,0.2)" }}
+          <input 
+            type="text" 
+            placeholder="Buscar por acción, usuario, módulo o detalle técnico..." 
+            value={searchTerm} 
+            onChange={(e) => setSearchTerm(e.target.value)} 
+            style={{ ...inputStyle, paddingLeft: 38 }} 
           />
         </div>
 
-        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-          {MODULES.map((m) => (
-            <Chip key={m.value} active={filterModule === m.value} onClick={() => setFilterModule(m.value)}>
-              {m.label}
-            </Chip>
-          ))}
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          <select value={filterModule} onChange={(e) => setFilterModule(e.target.value)} style={{ ...inputStyle, width: "auto" }}>
+            <option value="todos" style={{ background: "#12141d" }}>Todos los Módulos</option>
+            <option value="Producción" style={{ background: "#12141d" }}>Producción</option>
+            <option value="Inventario" style={{ background: "#12141d" }}>Inventario</option>
+            <option value="Calidad" style={{ background: "#12141d" }}>Calidad</option>
+            <option value="Mantenimiento" style={{ background: "#12141d" }}>Mantenimiento</option>
+            <option value="Aprobaciones" style={{ background: "#12141d" }}>Aprobaciones</option>
+          </select>
+
+          <select value={filterSeverity} onChange={(e) => setFilterSeverity(e.target.value)} style={{ ...inputStyle, width: "auto" }}>
+            <option value="todos" style={{ background: "#12141d" }}>Todas las Categorías</option>
+            <option value="signature" style={{ background: "#12141d" }}>Firmas & Aprobaciones</option>
+            <option value="critical" style={{ background: "#12141d" }}>Fallas & CAPA</option>
+            <option value="warning" style={{ background: "#12141d" }}>Modificaciones</option>
+            <option value="info" style={{ background: "#12141d" }}>Informativos / Sistema</option>
+          </select>
+
+          <select value={limitCount} onChange={(e) => setLimitCount(Number(e.target.value))} style={{ ...inputStyle, width: "auto" }}>
+            <option value={50} style={{ background: "#12141d" }}>50 logs</option>
+            <option value={100} style={{ background: "#12141d" }}>100 logs</option>
+            <option value={250} style={{ background: "#12141d" }}>250 logs</option>
+          </select>
+
+          <DateRangeFilter from={fromDate} to={toDate} onFromChange={setFromDate} onToChange={setToDate} />
         </div>
-
-        <DateRangeFilter from={dateFrom} to={dateTo} onFromChange={setDateFrom} onToChange={setDateTo} />
-
-        <button onClick={() => exportToCsv("historial-actividad", filtered)} style={{ ...ghostButtonStyle, marginLeft: "auto", borderRadius: 8 }}>
-          <Download size={16} /> Exportar
-        </button>
       </div>
 
-      {/* Lista de Registros */}
-      {loading ? (
-        <CenteredMessage text="Cargando historial de auditoría..." />
-      ) : filtered.length === 0 ? (
-        <EmptyState Icon={Activity} title="Sin actividad registrada" message="No se encontraron eventos con los filtros seleccionados." />
+      {/* TABLA ENTERPRISE DE AUDITORÍA DE AUDITORÍA */}
+      {filteredLogs.length === 0 ? (
+        <EmptyState 
+          Icon={History} 
+          title="Sin Eventos Registrados" 
+          message="No se encontraron entradas en la bitácora bajo los criterios de filtrado seleccionados." 
+        />
       ) : (
         <div style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 16, overflow: "hidden" }}>
-          <div style={{ display: "grid", gridTemplateColumns: "160px 120px 160px 1fr 200px", padding: "14px 18px", borderBottom: "1px solid rgba(255,255,255,0.08)", fontSize: 12, fontWeight: 700, color: "rgba(255,255,255,0.4)", letterSpacing: 0.5 }}>
-            <span>FECHA / HORA</span>
-            <span>MÓDULO</span>
-            <span>ACCIÓN</span>
-            <span>OBJETO / DETALLE</span>
-            <span>USUARIO</span>
-          </div>
+          <table style={{ width: "100%", borderCollapse: "collapse", textAlign: "left", fontSize: 13, color: "#fff" }}>
+            <thead>
+              <tr style={{ background: "rgba(255,255,255,0.04)", borderBottom: "1px solid rgba(255,255,255,0.08)", fontSize: 11, textTransform: "uppercase", color: "rgba(255,255,255,0.5)" }}>
+                <th style={{ padding: "14px 16px" }}>Marca de Tiempo</th>
+                <th style={{ padding: "14px 16px" }}>Usuario / Operador</th>
+                <th style={{ padding: "14px 16px" }}>Módulo</th>
+                <th style={{ padding: "14px 16px" }}>Acción Auditada</th>
+                <th style={{ padding: "14px 16px" }}>Detalles de la Operación</th>
+                <th style={{ padding: "14px 16px", textAlign: "right" }}>Inspeccionar</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredLogs.map((log) => {
+                const actionLower = (log.action || "").toLowerCase();
+                const isSignature = actionLower.includes("firma") || actionLower.includes("aprobado");
+                const isCritical = actionLower.includes("no conformidad") || actionLower.includes("falla");
 
-          <div style={{ display: "flex", flexDirection: "column" }}>
-            {filtered.map((log, index) => {
-              const dateStr = log.timestamp?.toDate 
-                ? log.timestamp.toDate().toLocaleString([], { dateStyle: 'short', timeStyle: 'medium' }) 
-                : "Reciente";
-
-              return (
-                <div
-                  key={log.id || index}
-                  style={{
-                    display: "grid",
-                    gridTemplateColumns: "160px 120px 160px 1fr 200px",
-                    padding: "12px 18px",
-                    alignItems: "center",
-                    borderBottom: index !== filtered.length - 1 ? "1px solid rgba(255,255,255,0.04)" : "none",
-                    background: index % 2 === 0 ? "rgba(255,255,255,0.01)" : "transparent",
-                    fontSize: 13,
-                  }}
-                >
-                  <span style={{ color: "rgba(255,255,255,0.5)", fontSize: 12 }}>{dateStr}</span>
-
-                  <span>
-                    <ModuleBadge module={log.module} />
-                  </span>
-
-                  <span style={{ fontWeight: 700, color: "#fff" }}>
-                    <ActionBadge action={log.action} />
-                  </span>
-
-                  <div style={{ color: "rgba(255,255,255,0.9)", paddingRight: 10 }}>
-                    <strong style={{ color: "#fff" }}>{log.target || log.details}</strong>
-                    {log.target && log.details && <span style={{ color: "rgba(255,255,255,0.5)", marginLeft: 6 }}>({log.details})</span>}
-                  </div>
-
-                  <span style={{ color: "rgba(255,255,255,0.6)", fontSize: 12, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                    {log.user || "Sistema"}
-                  </span>
-                </div>
-              );
-            })}
-          </div>
-
-          {/* Cargar más si es necesario */}
-          {logs.length >= limitCount && (
-            <div style={{ padding: 12, textAlign: "center", borderTop: "1px solid rgba(255,255,255,0.06)" }}>
-              <button onClick={() => setLimitCount((prev) => prev + 100)} style={{ ...ghostButtonStyle, fontSize: 12, margin: "0 auto" }}>
-                Cargar más registros de auditoría
-              </button>
-            </div>
-          )}
+                return (
+                  <tr key={log.id} style={{ borderBottom: "1px solid rgba(255,255,255,0.04)" }}>
+                    <td style={{ padding: "14px 16px", whiteSpace: "nowrap", fontSize: 12, color: "rgba(255,255,255,0.6)" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        <Clock size={13} color="rgba(255,255,255,0.4)" />
+                        {formatTimestamp(log.timestamp)}
+                      </div>
+                    </td>
+                    <td style={{ padding: "14px 16px" }}>
+                      <div style={{ fontWeight: 700, color: "#fff", display: "flex", alignItems: "center", gap: 6 }}>
+                        <User size={13} color="#007AFF" />
+                        {log.user || "Sistema"}
+                      </div>
+                    </td>
+                    <td style={{ padding: "14px 16px" }}>
+                      <span style={{ fontSize: 11, fontWeight: 800, padding: "2px 8px", borderRadius: 4, background: "rgba(255,255,255,0.06)", color: "rgba(255,255,255,0.8)" }}>
+                        {log.module || "General"}
+                      </span>
+                    </td>
+                    <td style={{ padding: "14px 16px" }}>
+                      <div style={{ 
+                        fontWeight: 800, 
+                        color: isSignature ? "#34C759" : isCritical ? "#FF3B30" : "#fff" 
+                      }}>
+                        {log.action}
+                      </div>
+                    </td>
+                    <td style={{ padding: "14px 16px", color: "rgba(255,255,255,0.7)", maxWidth: 350, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {log.details || "Sin información adicional"}
+                    </td>
+                    <td style={{ padding: "14px 16px", textAlign: "right" }}>
+                      <button 
+                        onClick={() => setSelectedLog(log)} 
+                        style={{ ...ghostButtonStyle, padding: "4px 8px", fontSize: 11 }}
+                      >
+                        <Eye size={13} /> Payload
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
       )}
+
+      {/* MODAL PAYLOAD TÉCNICO SCADA */}
+      {selectedLog && (
+        <ModalShell title="Payload de Evento Auditado" onClose={() => setSelectedLog(null)}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            <div style={{ background: "rgba(0,0,0,0.4)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 10, padding: 14 }}>
+              <div style={{ fontSize: 11, color: "#007AFF", fontWeight: 800, marginBottom: 4 }}>METADATOS DEL LOG</div>
+              <div style={{ fontSize: 13, color: "#fff", fontWeight: 700 }}>ID Log: {selectedLog.id}</div>
+              <div style={{ fontSize: 12, color: "rgba(255,255,255,0.6)", marginTop: 2 }}>
+                Ejecutado por: {selectedLog.user} | Módulo: {selectedLog.module}
+              </div>
+            </div>
+
+            <div style={{ fontSize: 12, fontWeight: 700, color: "#fff" }}>Detalles Inmutables:</div>
+            <div style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)", padding: 12, borderRadius: 8, fontSize: 13, color: "rgba(255,255,255,0.85)", fontFamily: "monospace" }}>
+              {selectedLog.details || "No se adjuntaron metadatos JSON al evento."}
+            </div>
+
+            <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 10 }}>
+              <button onClick={() => setSelectedLog(null)} style={secondaryButtonStyle}>
+                Cerrar Visor
+              </button>
+            </div>
+          </div>
+        </ModalShell>
+      )}
+
     </div>
   );
-}
-
-function KpiCard({ label, value, icon: Icon, accentColor }) {
-  return (
-    <div style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 16, padding: "18px 20px" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <span style={{ fontSize: 13, color: "rgba(255,255,255,0.5)", fontWeight: 600 }}>{label}</span>
-        <div style={{ background: `${accentColor}20`, color: accentColor, padding: 6, borderRadius: 8 }}>
-          <Icon size={18} />
-        </div>
-      </div>
-      <div style={{ fontSize: 32, fontWeight: 800, marginTop: 8, color: "#fff" }}>{value}</div>
-    </div>
-  );
-}
-
-function Chip({ active, onClick, children }) {
-  return (
-    <button onClick={onClick} style={{ background: active ? "#007AFF" : "rgba(255,255,255,0.05)", color: active ? "#fff" : "rgba(255,255,255,0.7)", border: "none", padding: "6px 12px", borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
-      {children}
-    </button>
-  );
-}
-
-function ModuleBadge({ module }) {
-  const colors = {
-    Materiales: { bg: "rgba(0, 122, 255, 0.15)", color: "#007AFF" },
-    Calidad: { bg: "rgba(255, 59, 48, 0.15)", color: "#FF3B30" },
-    Aprobaciones: { bg: "rgba(52, 199, 89, 0.15)", color: "#34C759" },
-    Sistema: { bg: "rgba(142, 142, 147, 0.15)", color: "#8E8E93" },
-  };
-
-  const style = colors[module] || colors.Sistema;
-
-  return (
-    <span style={{ background: style.bg, color: style.color, padding: "2px 8px", borderRadius: 6, fontSize: 11, fontWeight: 700 }}>
-      {module || "General"}
-    </span>
-  );
-}
-
-function ActionBadge({ action }) {
-  const act = (action || "").toLowerCase();
-  let color = "rgba(255,255,255,0.8)";
-
-  if (act.includes("cread") || act.includes("agregad")) color = "#34C759";
-  if (act.includes("eliminad") || act.includes("borrad")) color = "#FF3B30";
-  if (act.includes("actualizad") || act.includes("modificad")) color = "#007AFF";
-  if (act.includes("aprobad")) color = "#34C759";
-  if (act.includes("rechazad")) color = "#FF3B30";
-
-  return <span style={{ color }}>{action}</span>;
 }
