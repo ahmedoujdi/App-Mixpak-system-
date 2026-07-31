@@ -1,150 +1,92 @@
 import React, { useState, useEffect, useMemo } from "react";
-import {
-  collection,
-  onSnapshot,
-  addDoc,
-  updateDoc,
-  deleteDoc,
-  doc,
-  serverTimestamp,
-  query,
-  orderBy,
-} from "firebase/firestore";
-
-// ⚠️ RUTAS CORREGIDAS CON ../
+import { collection, onSnapshot, query, orderBy, updateDoc, doc, deleteDoc } from "firebase/firestore";
 import { db } from "../firebase.js";
-import {
-  Boxes,
-  Plus,
-  Trash2,
-  AlertTriangle,
-  Search,
-  Download,
-} from "lucide-react";
-import {
-  COLORS,
-  inputStyle,
-  primaryButtonStyle,
-  ghostButtonStyle,
-  exportToCsv,
-  logActivity,
-  CenteredMessage,
-  Field,
-  ModalShell,
-  ConfirmDialog,
-  StatCard,
-  EmptyState,
-} from "../shared.jsx";
-
-const emptyForm = {
-  code: "",
-  name: "",
-  stock: "",
-  minStock: "",
-  unit: "unidades",
-};
+import { Layers, Search, Download, AlertCircle, Plus, Trash2 } from "lucide-react";
+import { inputStyle, primaryButtonStyle, ghostButtonStyle, exportToCsv, logActivity, CenteredMessage, ConfirmDialog, EmptyState } from "../shared.jsx";
 
 export default function Materiales({ user }) {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [modalOpen, setModalOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [confirmDelete, setConfirmDelete] = useState(null);
 
   useEffect(() => {
-    const q = query(collection(db, "materials"), orderBy("name", "asc"));
-    const unsub = onSnapshot(q, (snap) => {
+    const q = query(collection(db, "inventory_materials"), orderBy("name", "asc"));
+    return onSnapshot(q, (snap) => {
       setItems(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
       setLoading(false);
     });
-    return unsub;
   }, []);
 
   async function updateStock(item, delta) {
-    const newStock = Math.max(0, Number(item.stock || 0) + delta);
-    await updateDoc(doc(db, "materials", item.id), { stock: newStock });
-    logActivity(user.email, "Materiales", "Ajuste de Stock", `${item.name}: ${item.stock} → ${newStock}`);
+    const newStock = Math.max(0, (item.stock || 0) + delta);
+    await updateDoc(doc(db, "inventory_materials", item.id), { stock: newStock });
   }
 
   async function removeItem(item) {
-    await deleteDoc(doc(db, "materials", item.id));
+    await deleteDoc(doc(db, "inventory_materials", item.id));
     logActivity(user.email, "Materiales", "Eliminado", item.name);
     setConfirmDelete(null);
   }
 
   const filtered = useMemo(() => {
-    return items.filter((i) => {
-      if (search && !`${i.code || ""} ${i.name}`.toLowerCase().includes(search.toLowerCase())) return false;
-      return true;
-    });
+    return items.filter((i) => `${i.name} ${i.code || ""}`.toLowerCase().includes(search.toLowerCase()));
   }, [items, search]);
 
-  const stats = useMemo(() => {
-    let low = 0;
-    items.forEach((i) => {
-      if (Number(i.stock) <= Number(i.minStock)) low++;
-    });
-    return { total: items.length, low };
-  }, [items]);
-
   return (
-    <div>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12, marginBottom: 18 }}>
-        <h1 style={{ fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 20, textTransform: "uppercase", margin: 0 }}>
-          Inventario de Materiales / Repuestos
-        </h1>
-        <button onClick={() => setModalOpen(true)} style={primaryButtonStyle}>
-          <Plus size={16} /> Nuevo ítem
-        </button>
-      </div>
-
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10, marginBottom: 20 }}>
-        <StatCard label="Total Ítems" value={stats.total} color={COLORS.steel} Icon={Boxes} />
-        <StatCard label="Stock Crítico / Bajo" value={stats.low} color={stats.low > 0 ? COLORS.critical : COLORS.green} Icon={AlertTriangle} />
-      </div>
-
-      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 18, alignItems: "center" }}>
-        <div style={{ position: "relative", flex: "1 1 200px" }}>
-          <Search size={14} color={COLORS.textMuted} style={{ position: "absolute", left: 9, top: 11 }} />
-          <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar por código o nombre..." style={{ ...inputStyle, paddingLeft: 30 }} />
+    <div style={{ maxWidth: 1200, margin: "0 auto", paddingBottom: 40 }}>
+      {/* Header */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24, flexWrap: "wrap", gap: 16 }}>
+        <div>
+          <span style={{ background: "rgba(88, 86, 214, 0.15)", color: "#5856D6", padding: "4px 8px", borderRadius: 6, fontSize: 12, fontWeight: 700, letterSpacing: 1 }}>
+            INVENTORY
+          </span>
+          <h1 style={{ fontSize: 28, fontWeight: 800, margin: "6px 0 0", letterSpacing: "-0.5px" }}>Stock de Materiales</h1>
         </div>
-        <button
-          onClick={() => exportToCsv("inventario-materiales", filtered.map((i) => ({
-            codigo: i.code, nombre: i.name, stock: i.stock, minStock: i.minStock, unidad: i.unit
-          })))}
-          style={ghostButtonStyle}
-        >
+      </div>
+
+      {/* Toolbar */}
+      <div style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 14, padding: 12, marginBottom: 24, display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
+        <div style={{ position: "relative", flex: "1 1 240px" }}>
+          <Search size={16} color="rgba(255,255,255,0.4)" style={{ position: "absolute", left: 12, top: 12 }} />
+          <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar por código o descripción..." style={{ ...inputStyle, paddingLeft: 36, borderRadius: 8, background: "rgba(0,0,0,0.2)" }} />
+        </div>
+        <button onClick={() => exportToCsv("materiales", filtered)} style={{ ...ghostButtonStyle, marginLeft: "auto", borderRadius: 8 }}>
           <Download size={16} /> Exportar
         </button>
       </div>
 
+      {/* Inventory Grid */}
       {loading ? (
-        <CenteredMessage text="Cargando inventario…" />
-      ) : items.length === 0 ? (
-        <EmptyState Icon={Boxes} title="Sin materiales registrados" message="Agrega tu primer repuesto o insumo al inventario." onAdd={() => setModalOpen(true)} addLabel="Agregar ítem" />
+        <CenteredMessage text="Cargando inventario de materiales..." />
+      ) : filtered.length === 0 ? (
+        <EmptyState Icon={Layers} title="Sin materiales" message="No hay ningún ítem coincidente." />
       ) : (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 14 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 16 }}>
           {filtered.map((item) => {
-            const isLow = Number(item.stock) <= Number(item.minStock);
+            const isLow = (item.stock || 0) <= (item.minStock || 5);
             return (
-              <div key={item.id} style={{ background: COLORS.panel, borderLeft: `5px solid ${isLow ? COLORS.critical : COLORS.steel}`, padding: 14 }}>
-                <div style={{ display: "flex", justifyContent: "space-between" }}>
-                  <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: COLORS.textMuted }}>{item.code || "S/C"}</span>
-                  <button onClick={() => setConfirmDelete(item)} style={{ background: "none", border: "none", cursor: "pointer", color: COLORS.textMuted }}>
-                    <Trash2 size={14} />
-                  </button>
+              <div key={item.id} style={{ background: "rgba(255,255,255,0.03)", border: `1px solid ${isLow ? "rgba(255, 59, 48, 0.3)" : "rgba(255,255,255,0.07)"}`, borderRadius: 16, padding: 18, position: "relative" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}>
+                  <span style={{ fontSize: 11, color: "rgba(255,255,255,0.4)", fontWeight: 700 }}>{item.code || "SKU-N/A"}</span>
+                  <button onClick={() => setConfirmDelete(item)} style={{ background: "none", border: "none", color: "rgba(255,255,255,0.3)", cursor: "pointer" }}><Trash2 size={15} /></button>
                 </div>
-                <h3 style={{ fontSize: 16, fontWeight: 600, margin: "6px 0 6px" }}>{item.name}</h3>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+
+                <h3 style={{ fontSize: 16, fontWeight: 700, margin: "0 0 12px", color: "#fff" }}>{item.name}</h3>
+
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "rgba(0,0,0,0.2)", padding: 10, borderRadius: 10 }}>
                   <div>
-                    <span style={{ fontSize: 20, fontWeight: 700, color: isLow ? COLORS.critical : COLORS.text }}>{item.stock}</span>
-                    <span style={{ fontSize: 12, color: COLORS.textMuted, marginLeft: 4 }}>{item.unit}</span>
+                    <div style={{ fontSize: 20, fontWeight: 800, color: isLow ? "#FF3B30" : "#fff" }}>
+                      {item.stock || 0} <span style={{ fontSize: 11, color: "rgba(255,255,255,0.5)", fontWeight: 400 }}>{item.unit || "unid."}</span>
+                    </div>
+                    {isLow && <span style={{ fontSize: 10, color: "#FF3B30", fontWeight: 700, display: "flex", alignItems: "center", gap: 4 }}><AlertCircle size={10} /> Stock Bajo</span>}
                   </div>
-                  <span style={{ fontSize: 11, color: COLORS.textMuted }}>Mínimo: {item.minStock}</span>
-                </div>
-                <div style={{ display: "flex", gap: 6 }}>
-                  <button onClick={() => updateStock(item, -1)} style={{ ...ghostButtonStyle, flex: 1, justifyContent: "center" }}>-1</button>
-                  <button onClick={() => updateStock(item, 1)} style={{ ...ghostButtonStyle, flex: 1, justifyContent: "center" }}>+1</button>
+
+                  {/* Stock Quick Controls */}
+                  <div style={{ display: "flex", gap: 4 }}>
+                    <button onClick={() => updateStock(item, -1)} style={{ background: "rgba(255,255,255,0.1)", border: "none", color: "#fff", width: 28, height: 28, borderRadius: 6, cursor: "pointer", fontWeight: 700 }}>-</button>
+                    <button onClick={() => updateStock(item, 1)} style={{ background: "#007AFF", border: "none", color: "#fff", width: 28, height: 28, borderRadius: 6, cursor: "pointer", fontWeight: 700 }}>+</button>
+                  </div>
                 </div>
               </div>
             );
@@ -152,65 +94,7 @@ export default function Materiales({ user }) {
         </div>
       )}
 
-      {modalOpen && <MaterialModal user={user} onClose={() => setModalOpen(false)} />}
-      {confirmDelete && (
-        <ConfirmDialog
-          title="Eliminar repuesto"
-          message="¿Seguro que deseas eliminar este material del inventario?"
-          onCancel={() => setConfirmDelete(null)}
-          onConfirm={() => removeItem(confirmDelete)}
-        />
-      )}
+      {confirmDelete && <ConfirmDialog title="Eliminar ítem" message={`¿Confirmas eliminar ${confirmDelete.name} del inventario?`} onCancel={() => setConfirmDelete(null)} onConfirm={() => removeItem(confirmDelete)} />}
     </div>
-  );
-}
-
-function MaterialModal({ user, onClose }) {
-  const [form, setForm] = useState(emptyForm);
-  const [saving, setSaving] = useState(false);
-
-  async function submit(e) {
-    e.preventDefault();
-    if (!form.name.trim()) return;
-    setSaving(true);
-    try {
-      await addDoc(collection(db, "materials"), {
-        ...form,
-        stock: Number(form.stock) || 0,
-        minStock: Number(form.minStock) || 0,
-        createdAt: serverTimestamp(),
-      });
-      logActivity(user.email, "Materiales", "Nuevo ítem", form.name);
-      onClose();
-    } catch (err) {
-      setSaving(false);
-    }
-  }
-
-  return (
-    <ModalShell onClose={onClose} title="Nuevo repuesto / material">
-      <form onSubmit={submit}>
-        <Field label="Código de referencia">
-          <input value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value })} style={inputStyle} placeholder="Ej. REP-092" />
-        </Field>
-        <Field label="Nombre del elemento *">
-          <input required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} style={inputStyle} placeholder="Ej. Rodamiento SKF 6204" />
-        </Field>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-          <Field label="Stock Inicial">
-            <input type="number" value={form.stock} onChange={(e) => setForm({ ...form, stock: e.target.value })} style={inputStyle} placeholder="0" />
-          </Field>
-          <Field label="Stock Mínimo">
-            <input type="number" value={form.minStock} onChange={(e) => setForm({ ...form, minStock: e.target.value })} style={inputStyle} placeholder="5" />
-          </Field>
-        </div>
-        <Field label="Unidad de medida">
-          <input value={form.unit} onChange={(e) => setForm({ ...form, unit: e.target.value })} style={inputStyle} placeholder="unidades, metros, litros..." />
-        </Field>
-        <button type="submit" disabled={saving} style={{ ...primaryButtonStyle, width: "100%", justifyContent: "center", marginTop: 8 }}>
-          {saving ? "Guardando…" : "Guardar material"}
-        </button>
-      </form>
-    </ModalShell>
   );
 }
