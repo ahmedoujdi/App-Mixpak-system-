@@ -1,260 +1,162 @@
-import React, { useState, useEffect, useMemo } from "react";
-import {
-  collection,
-  onSnapshot,
-  addDoc,
-  updateDoc,
-  deleteDoc,
-  doc,
-  serverTimestamp,
-  query,
-  orderBy,
-} from "firebase/firestore";
-
-// ⚠️ RUTAS CORREGIDAS CON ../
+import React, { useState, useEffect } from "react";
+import { collection, onSnapshot, addDoc, updateDoc, doc, serverTimestamp } from "firebase/firestore";
 import { db } from "../firebase.js";
-import {
-  Factory,
-  Plus,
-  Trash2,
-  CheckCircle,
-  Play,
-  Pause,
-  Download,
-  Search,
-} from "lucide-react";
-import {
-  COLORS,
-  inputStyle,
-  selectStyle,
-  primaryButtonStyle,
-  ghostButtonStyle,
-  exportToCsv,
-  logActivity,
-  CenteredMessage,
-  Field,
-  ModalShell,
-  ConfirmDialog,
-  StatCard,
-  EmptyState,
-} from "../shared.jsx";
+import { useTheme, primaryButtonStyle, ghostButtonStyle, inputStyle, selectStyle, Field, ModalShell, CenteredMessage, StatCard, exportToCsv, exportToPdf, useToast } from "../shared.jsx";
+import { Factory, Plus, Clock, CheckCircle, AlertTriangle, FileText, Download, Search } from "lucide-react";
 
-const emptyForm = {
-  line: "Línea 1",
-  product: "",
-  targetQty: "",
-  producedQty: "0",
-  status: "planificado", // planificado, en_proceso, pausado, completado
-  notes: "",
-};
-
-export default function Produccion({ user }) {
+export default function Produccion() {
+  const { theme } = useTheme();
+  const { addToast } = useToast();
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [modalOpen, setModalOpen] = useState(false);
+  const [showModal, setShowModal] = useState(false);
   const [search, setSearch] = useState("");
-  const [filterStatus, setFilterStatus] = useState("todos");
-  const [confirmDelete, setConfirmDelete] = useState(null);
+
+  const [name, setName] = useState("");
+  const [line, setLine] = useState("Línea 1 - Envasado");
+  const [quantity, setQuantity] = useState("");
+  const [operator, setOperator] = useState("");
 
   useEffect(() => {
-    const q = query(collection(db, "production_orders"), orderBy("createdAt", "desc"));
-    const unsub = onSnapshot(q, (snap) => {
-      setOrders(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+    const unsub = onSnapshot(collection(db, "production_orders"), (snapshot) => {
+      setOrders(snapshot.docs.map((d) => ({ id: d.id, ...d.data() })));
       setLoading(false);
-    });
-    return unsub;
+    }, () => setLoading(false));
+    return () => unsub();
   }, []);
 
-  async function updateOrderStatus(order, newStatus) {
-    await updateDoc(doc(db, "production_orders", order.id), {
-      status: newStatus,
-      updatedAt: serverTimestamp(),
-    });
-    logActivity(user.email, "Producción", "Cambio de Estado", `Orden ${order.product}: ${order.status} → ${newStatus}`);
-  }
-
-  async function updateProducedQty(order, delta) {
-    const newQty = Math.max(0, Number(order.producedQty || 0) + delta);
-    await updateDoc(doc(db, "production_orders", order.id), {
-      producedQty: newQty,
-      updatedAt: serverTimestamp(),
-    });
-  }
-
-  async function removeOrder(order) {
-    await deleteDoc(doc(db, "production_orders", order.id));
-    logActivity(user.email, "Producción", "Eliminada", `Orden ${order.product}`);
-    setConfirmDelete(null);
-  }
-
-  const filteredOrders = useMemo(() => {
-    return orders.filter((o) => {
-      if (filterStatus !== "todos" && o.status !== filterStatus) return false;
-      if (search && !`${o.product} ${o.line}`.toLowerCase().includes(search.toLowerCase())) return false;
-      return true;
-    });
-  }, [orders, filterStatus, search]);
-
-  const stats = useMemo(() => {
-    let active = 0;
-    let completed = 0;
-    orders.forEach((o) => {
-      if (o.status === "en_proceso") active++;
-      if (o.status === "completado") completed++;
-    });
-    return { total: orders.length, active, completed };
-  }, [orders]);
-
-  return (
-    <div>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12, marginBottom: 18 }}>
-        <h1 style={{ fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 20, textTransform: "uppercase", margin: 0 }}>
-          Órdenes de Producción
-        </h1>
-        <button onClick={() => setModalOpen(true)} style={primaryButtonStyle}>
-          <Plus size={16} /> Nueva Orden
-        </button>
-      </div>
-
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10, marginBottom: 20 }}>
-        <StatCard label="Total Órdenes" value={stats.total} color={COLORS.steel} Icon={Factory} />
-        <StatCard label="En Proceso" value={stats.active} color={COLORS.safety} Icon={Play} />
-        <StatCard label="Completadas" value={stats.completed} color={COLORS.green} Icon={CheckCircle} />
-      </div>
-
-      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 18, alignItems: "center" }}>
-        <div style={{ position: "relative", flex: "1 1 200px" }}>
-          <Search size={14} color={COLORS.textMuted} style={{ position: "absolute", left: 9, top: 11 }} />
-          <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar por producto o línea..." style={{ ...inputStyle, paddingLeft: 30 }} />
-        </div>
-        <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)} style={{ ...selectStyle, width: "auto" }}>
-          <option value="todos">Todos los estados</option>
-          <option value="planificado">Planificado</option>
-          <option value="en_proceso">En Proceso</option>
-          <option value="pausado">Pausado</option>
-          <option value="completado">Completado</option>
-        </select>
-        <button
-          onClick={() => exportToCsv("ordenes-produccion", filteredOrders.map((o) => ({
-            linea: o.line, producto: o.product, meta: o.targetQty, producido: o.producedQty, estado: o.status
-          })))}
-          style={ghostButtonStyle}
-        >
-          <Download size={16} /> Exportar
-        </button>
-      </div>
-
-      {loading ? (
-        <CenteredMessage text="Cargando órdenes de producción…" />
-      ) : orders.length === 0 ? (
-        <EmptyState Icon={Factory} title="Sin órdenes activas" message="Crea una nueva orden de producción para comenzar." onAdd={() => setModalOpen(true)} addLabel="Nueva Orden" />
-      ) : (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 14 }}>
-          {filteredOrders.map((order) => {
-            const progress = order.targetQty ? Math.min(100, Math.round((Number(order.producedQty || 0) / Number(order.targetQty)) * 100)) : 0;
-            return (
-              <div key={order.id} style={{ background: COLORS.panel, border: `1px solid ${COLORS.border}`, borderRadius: 6, padding: 16 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-                  <span style={{ fontSize: 11, fontWeight: 700, color: COLORS.steel, textTransform: "uppercase" }}>{order.line}</span>
-                  <button onClick={() => setConfirmDelete(order)} style={{ background: "none", border: "none", color: COLORS.textMuted, cursor: "pointer" }}>
-                    <Trash2 size={14} />
-                  </button>
-                </div>
-                <h3 style={{ fontSize: 16, margin: "0 0 10px", fontWeight: 600 }}>{order.product}</h3>
-
-                <div style={{ marginBottom: 12 }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: COLORS.textMuted, marginBottom: 4 }}>
-                    <span>Progreso: {progress}%</span>
-                    <span>{order.producedQty || 0} / {order.targetQty || 0} u.</span>
-                  </div>
-                  <div style={{ background: "#0f1722", height: 6, borderRadius: 3, overflow: "hidden" }}>
-                    <div style={{ background: progress >= 100 ? COLORS.green : COLORS.steel, width: `${progress}%`, height: "100%" }} />
-                  </div>
-                </div>
-
-                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 12 }}>
-                  {order.status !== "en_proceso" && (
-                    <button onClick={() => updateOrderStatus(order, "en_proceso")} style={{ ...ghostButtonStyle, color: COLORS.green }}>
-                      <Play size={12} /> Iniciar
-                    </button>
-                  )}
-                  {order.status === "en_proceso" && (
-                    <button onClick={() => updateOrderStatus(order, "pausado")} style={{ ...ghostButtonStyle, color: COLORS.safety }}>
-                      <Pause size={12} /> Pausar
-                    </button>
-                  )}
-                  {order.status !== "completado" && (
-                    <button onClick={() => updateOrderStatus(order, "completado")} style={{ ...ghostButtonStyle, color: COLORS.steel }}>
-                      <CheckCircle size={12} /> Finalizar
-                    </button>
-                  )}
-                  <div style={{ marginLeft: "auto", display: "flex", gap: 4 }}>
-                    <button onClick={() => updateProducedQty(order, -10)} style={ghostButtonStyle}>-10</button>
-                    <button onClick={() => updateProducedQty(order, 10)} style={ghostButtonStyle}>+10</button>
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
-
-      {modalOpen && <OrderModal user={user} onClose={() => setModalOpen(false)} />}
-      {confirmDelete && (
-        <ConfirmDialog
-          title="Eliminar Orden"
-          message="¿Seguro que deseas eliminar esta orden de producción?"
-          onCancel={() => setConfirmDelete(null)}
-          onConfirm={() => removeOrder(confirmDelete)}
-        />
-      )}
-    </div>
-  );
-}
-
-function OrderModal({ user, onClose }) {
-  const [form, setForm] = useState(emptyForm);
-  const [saving, setSaving] = useState(false);
-
-  async function submit(e) {
+  const handleCreate = async (e) => {
     e.preventDefault();
-    if (!form.product.trim()) return;
-    setSaving(true);
+    if (!name || !quantity) return;
     try {
       await addDoc(collection(db, "production_orders"), {
-        ...form,
-        targetQty: Number(form.targetQty) || 0,
-        producedQty: Number(form.producedQty) || 0,
-        createdAt: serverTimestamp(),
+        name,
+        line,
+        quantity: Number(quantity),
+        operator: operator || "Sin Asignar",
+        status: "En Proceso",
+        timestamp: serverTimestamp(),
       });
-      logActivity(user.email, "Producción", "Nueva Orden", form.product);
-      onClose();
+      addToast("Orden de producción registrada", "success");
+      setName("");
+      setQuantity("");
+      setOperator("");
+      setShowModal(false);
     } catch (err) {
-      setSaving(false);
+      addToast("Error al registrar orden", "error");
     }
-  }
+  };
+
+  const handleStatusChange = async (id, newStatus) => {
+    try {
+      await updateDoc(doc(db, "production_orders", id), { status: newStatus });
+      addToast(`Orden marcada como ${newStatus}`, "info");
+    } catch (err) {
+      addToast("Error actualizando estado", "error");
+    }
+  };
+
+  const filteredOrders = orders.filter((o) =>
+    (o.name || "").toLowerCase().includes(search.toLowerCase()) ||
+    (o.line || "").toLowerCase().includes(search.toLowerCase())
+  );
+
+  if (loading) return <CenteredMessage text="Cargando líneas de producción..." />;
 
   return (
-    <ModalShell onClose={onClose} title="Nueva Orden de Producción">
-      <form onSubmit={submit}>
-        <Field label="Línea de Producción">
-          <select value={form.line} onChange={(e) => setForm({ ...form, line: e.target.value })} style={selectStyle}>
-            <option value="Línea 1">Línea 1</option>
-            <option value="Línea 2">Línea 2</option>
-            <option value="Línea 3">Línea 3</option>
-            <option value="Empaque">Empaque</option>
-          </select>
-        </Field>
-        <Field label="Producto *">
-          <input required value={form.product} onChange={(e) => setForm({ ...form, product: e.target.value })} style={inputStyle} placeholder="Nombre o SKU del producto" />
-        </Field>
-        <Field label="Meta de producción (Unidades)">
-          <input type="number" required value={form.targetQty} onChange={(e) => setForm({ ...form, targetQty: e.target.value })} style={inputStyle} placeholder="1000" />
-        </Field>
-        <button type="submit" disabled={saving} style={{ ...primaryButtonStyle, width: "100%", justifyContent: "center", marginTop: 10 }}>
-          {saving ? "Guardando…" : "Crear Orden"}
-        </button>
-      </form>
-    </ModalShell>
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12, background: theme.panel, padding: "16px 20px", borderRadius: 12, border: `1px solid ${theme.panelBorder}` }}>
+        <div>
+          <h1 style={{ margin: 0, fontSize: 18, fontWeight: 800 }}>PRODUCCIÓN Y ENVASADO</h1>
+          <p style={{ margin: "4px 0 0", fontSize: 12, color: theme.textMuted }}>Control de lotes activos y rendimiento de planta</p>
+        </div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button onClick={() => exportToCsv("produccion", orders)} style={ghostButtonStyle(theme)}><Download size={14} /> CSV</button>
+          <button onClick={() => exportToPdf("Reporte Producción", ["Lote/Orden", "Línea", "Cantidad", "Estado"], orders.map(o => [o.name, o.line, o.quantity, o.status]), "produccion")} style={ghostButtonStyle(theme)}><FileText size={14} /> PDF</button>
+          <button onClick={() => setShowModal(true)} style={primaryButtonStyle(theme)}><Plus size={16} /> Nueva Orden</button>
+        </div>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 12 }}>
+        <StatCard label="Total Órdenes" value={orders.length} color={theme.primary} Icon={Factory} />
+        <StatCard label="En Proceso" value={orders.filter((o) => o.status === "En Proceso").length} color={theme.safety} Icon={Clock} />
+        <StatCard label="Completadas" value={orders.filter((o) => o.status === "Completado").length} color={theme.green} Icon={CheckCircle} />
+      </div>
+
+      <div style={{ background: theme.panel, borderRadius: 12, border: `1px solid ${theme.panelBorder}`, padding: 12 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+          <Search size={16} color={theme.textMuted} />
+          <input
+            type="text"
+            placeholder="Buscar por lote o línea..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            style={{ ...inputStyle(theme), padding: "8px 12px" }}
+          />
+        </div>
+
+        <div style={{ overflowX: "auto" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, textAlign: "left" }}>
+            <thead>
+              <tr style={{ background: `${theme.primary}10`, borderBottom: `1px solid ${theme.panelBorder}` }}>
+                <th style={{ padding: 12 }}>Orden / Lote</th>
+                <th style={{ padding: 12 }}>Línea</th>
+                <th style={{ padding: 12 }}>Cantidad Unidades</th>
+                <th style={{ padding: 12 }}>Operador</th>
+                <th style={{ padding: 12 }}>Estado</th>
+                <th style={{ padding: 12 }}>Acciones</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredOrders.map((o) => (
+                <tr key={o.id} style={{ borderBottom: `1px solid ${theme.panelBorder}` }}>
+                  <td style={{ padding: 12, fontWeight: 700 }}>{o.name}</td>
+                  <td style={{ padding: 12, color: theme.textMuted }}>{o.line}</td>
+                  <td style={{ padding: 12, fontWeight: 600 }}>{o.quantity} u.</td>
+                  <td style={{ padding: 12 }}>{o.operator}</td>
+                  <td style={{ padding: 12 }}>
+                    <span style={{ padding: "4px 8px", borderRadius: 6, fontSize: 11, fontWeight: 700, backgroundColor: o.status === "Completado" ? `${theme.green}20` : `${theme.safety}20`, color: o.status === "Completado" ? theme.green : theme.safety }}>
+                      {o.status}
+                    </span>
+                  </td>
+                  <td style={{ padding: 12 }}>
+                    {o.status !== "Completado" && (
+                      <button onClick={() => handleStatusChange(o.id, "Completado")} style={{ ...ghostButtonStyle(theme), fontSize: 11, padding: "4px 8px" }}>
+                        Finalizar
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {showModal && (
+        <ModalShell title="Registrar Orden de Producción" onClose={() => setShowModal(false)}>
+          <form onSubmit={handleCreate}>
+            <Field label="Identificador de Orden / Lote">
+              <input value={name} onChange={(e) => setName(e.target.value)} style={inputStyle(theme)} placeholder="Ej. LOTE-2026-088" required />
+            </Field>
+            <Field label="Línea de Envasado">
+              <select value={line} onChange={(e) => setLine(e.target.value)} style={selectStyle(theme)}>
+                <option value="Línea 1 - Envasado">Línea 1 - Envasado</option>
+                <option value="Línea 2 - Soplado">Línea 2 - Soplado</option>
+                <option value="Línea 3 - Etiquetado">Línea 3 - Etiquetado</option>
+                <option value="Línea 4 - Empaque Final">Línea 4 - Empaque Final</option>
+              </select>
+            </Field>
+            <Field label="Cantidad Programada">
+              <input type="number" value={quantity} onChange={(e) => setQuantity(e.target.value)} style={inputStyle(theme)} placeholder="10000" required />
+            </Field>
+            <Field label="Operador Encargado">
+              <input value={operator} onChange={(e) => setOperator(e.target.value)} style={inputStyle(theme)} placeholder="Nombre del operador" />
+            </Field>
+            <button type="submit" style={{ ...primaryButtonStyle(theme), width: "100%", justifyContent: "center", marginTop: 10 }}>Crear Orden</button>
+          </form>
+        </ModalShell>
+      )}
+    </div>
   );
 }
