@@ -1,12 +1,12 @@
-import React, { useState, createContext, useContext, useEffect } from "react";
+import React, { useState, createContext, useContext, useEffect, useRef } from "react";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { addDoc, collection, serverTimestamp } from "firebase/firestore";
 import { db } from "./firebase.js";
-import { X, Calendar, Palette, CheckCircle2, AlertTriangle, Info } from "lucide-react";
+import { X, Calendar, Palette, AlertTriangle, CheckCircle2, Info } from "lucide-react";
 
 // ==========================================
-// DEFINICIÓN DE LOS 5 TEMAS INDUSTRIALES
+// CONFIGURACIÓN DE LOS 5 TEMAS DINÁMICOS
 // ==========================================
 export const THEMES = {
   light: {
@@ -87,7 +87,6 @@ export const THEMES = {
 };
 
 export let COLORS = THEMES.light;
-
 const ThemeContext = createContext();
 
 export function ThemeProvider({ children }) {
@@ -144,6 +143,9 @@ export function ThemeSelector() {
   );
 }
 
+// ==========================================
+// ESTILOS DE DICCIONARIO REUTILIZABLES
+// ==========================================
 export const primaryButtonStyle = (theme = COLORS) => ({
   display: "inline-flex",
   alignItems: "center",
@@ -192,6 +194,9 @@ export const selectStyle = (theme = COLORS) => ({
   cursor: "pointer",
 });
 
+// ==========================================
+// COMPONENTES UI REUTILIZABLES
+// ==========================================
 export function StatCard({ label, value, color, Icon }) {
   const { theme } = useTheme();
   const cardColor = color || theme.primary;
@@ -233,7 +238,7 @@ export function ModalShell({ title, onClose, children }) {
   const { theme } = useTheme();
   return (
     <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: "rgba(0,0,0,0.6)", backdropFilter: "blur(4px)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 9999, padding: 16 }}>
-      <div style={{ backgroundColor: theme.panel, borderRadius: 14, width: "100%", maxWidth: 520, maxHeight: "90vh", overflowY: "auto", boxShadow: theme.shadow, border: `1px solid ${theme.panelBorder}`, display: "flex", flexDirection: "column" }}>
+      <div style={{ backgroundColor: theme.panel, borderRadius: 14, width: "100%", maxWidth: 540, maxHeight: "90vh", overflowY: "auto", boxShadow: theme.shadow, border: `1px solid ${theme.panelBorder}`, display: "flex", flexDirection: "column" }}>
         <div style={{ padding: "16px 20px", borderBottom: `1px solid ${theme.panelBorder}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <h2 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: theme.text }}>{title}</h2>
           <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: theme.textMuted }}><X size={18} /></button>
@@ -259,47 +264,69 @@ export function CenteredMessage({ text }) {
   return <div style={{ padding: 40, textAlign: "center", color: theme.textMuted, fontSize: 13, fontWeight: 500 }}>{text}</div>;
 }
 
-export function EmptyState({ Icon, title, message, onAdd, addLabel }) {
+export function SignaturePad({ onSave }) {
   const { theme } = useTheme();
+  const canvasRef = useRef(null);
+  const [isDrawing, setIsDrawing] = useState(false);
+
+  const startDrawing = (e) => {
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext("2d");
+    const rect = canvas.getBoundingClientRect();
+    ctx.beginPath();
+    ctx.moveTo((e.clientX || e.touches[0].clientX) - rect.left, (e.clientY || e.touches[0].clientY) - rect.top);
+    setIsDrawing(true);
+  };
+
+  const draw = (e) => {
+    if (!isDrawing) return;
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext("2d");
+    const rect = canvas.getBoundingClientRect();
+    ctx.strokeStyle = theme.text;
+    ctx.lineWidth = 2;
+    ctx.lineTo((e.clientX || e.touches[0].clientX) - rect.left, (e.clientY || e.touches[0].clientY) - rect.top);
+    ctx.stroke();
+  };
+
+  const stopDrawing = () => {
+    if (!isDrawing) return;
+    setIsDrawing(false);
+    const canvas = canvasRef.current;
+    onSave(canvas.toDataURL());
+  };
+
+  const clearCanvas = () => {
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext("2d");
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    onSave("");
+  };
+
   return (
-    <div style={{ padding: 40, textAlign: "center", backgroundColor: theme.panel, borderRadius: 12, border: `1px dashed ${theme.panelBorder}`, display: "flex", flexDirection: "column", alignItems: "center", gap: 10 }}>
-      {Icon && (
-        <div style={{ width: 48, height: 48, borderRadius: "50%", backgroundColor: `${theme.primary}15`, display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <Icon size={24} color={theme.primary} />
-        </div>
-      )}
-      <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: theme.text }}>{title}</h3>
-      <p style={{ margin: 0, fontSize: 12, color: theme.textMuted, maxWidth: 320 }}>{message}</p>
-      {onAdd && <button onClick={onAdd} style={{ ...primaryButtonStyle(theme), marginTop: 6 }}>{addLabel}</button>}
+    <div>
+      <canvas
+        ref={canvasRef}
+        width={400}
+        height={120}
+        onMouseDown={startDrawing}
+        onMouseMove={draw}
+        onMouseUp={stopDrawing}
+        onTouchStart={startDrawing}
+        onTouchMove={draw}
+        onTouchEnd={stopDrawing}
+        style={{ border: `1px solid ${theme.panelBorder}`, borderRadius: 8, backgroundColor: theme.bg, cursor: "crosshair", width: "100%", touchAction: "none" }}
+      />
+      <button type="button" onClick={clearCanvas} style={{ ...ghostButtonStyle(theme), marginTop: 6, fontSize: 11 }}>
+        Limpiar Firma
+      </button>
     </div>
   );
 }
 
-export function DateRangeFilter({ from, to, onFromChange, onToChange }) {
-  const { theme } = useTheme();
-  return (
-    <div style={{ display: "flex", alignItems: "center", gap: 6, background: theme.panel, border: `1px solid ${theme.panelBorder}`, padding: "4px 8px", borderRadius: 8 }}>
-      <Calendar size={14} color={theme.textMuted} />
-      <input type="date" value={from} onChange={(e) => onFromChange(e.target.value)} style={{ background: "none", border: "none", color: theme.text, fontSize: 12, outline: "none" }} />
-      <span style={{ fontSize: 12, color: theme.textMuted }}>a</span>
-      <input type="date" value={to} onChange={(e) => onToChange(e.target.value)} style={{ background: "none", border: "none", color: theme.text, fontSize: 12, outline: "none" }} />
-    </div>
-  );
-}
-
-export function ConfirmDialog({ title, message, onConfirm, onCancel }) {
-  const { theme } = useTheme();
-  return (
-    <ModalShell title={title} onClose={onCancel}>
-      <p style={{ margin: "0 0 16px 0", fontSize: 13, color: theme.textMuted }}>{message}</p>
-      <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
-        <button onClick={onCancel} style={ghostButtonStyle(theme)}>Cancelar</button>
-        <button onClick={onConfirm} style={{ ...primaryButtonStyle(theme), backgroundColor: theme.critical }}>Confirmar</button>
-      </div>
-    </ModalShell>
-  );
-}
-
+// ==========================================
+// TOAST NOTIFICACIONES
+// ==========================================
 const ToastContext = createContext();
 
 export function ToastProvider({ children }) {
@@ -316,9 +343,9 @@ export function ToastProvider({ children }) {
   return (
     <ToastContext.Provider value={{ addToast }}>
       {children}
-      <div style={{ position: "fixed", bottom: 80, right: 20, zIndex: 10000, display: "flex", flexDirection: "column", gap: 8 }}>
+      <div style={{ position: "fixed", bottom: 70, right: 20, zIndex: 10000, display: "flex", flexDirection: "column", gap: 8 }}>
         {toasts.map((t) => (
-          <div key={t.id} style={{ padding: "10px 16px", borderRadius: 8, backgroundColor: t.type === "error" ? "#EF4444" : t.type === "success" ? "#10B981" : "#2563EB", color: "#FFFFFF", fontSize: 12, fontWeight: 600 }}>
+          <div key={t.id} style={{ padding: "10px 16px", borderRadius: 8, backgroundColor: t.type === "error" ? "#EF4444" : t.type === "success" ? "#10B981" : "#2563EB", color: "#FFFFFF", fontSize: 12, fontWeight: 600, boxShadow: "0 4px 10px rgba(0,0,0,0.2)" }}>
             {t.message}
           </div>
         ))}
@@ -331,15 +358,9 @@ export function useToast() {
   return useContext(ToastContext);
 }
 
-export function inDateRange(timestamp, from, to) {
-  if (!from && !to) return true;
-  if (!timestamp || !timestamp.toDate) return true;
-  const date = timestamp.toDate();
-  if (from && date < new Date(from)) return false;
-  if (to && date > new Date(to + "T23:59:59")) return false;
-  return true;
-}
-
+// ==========================================
+// FUNCIONES AUXILIARES Y DE CÁLCULO
+// ==========================================
 export function calculateKPIs(logs = []) {
   if (!logs || logs.length === 0) return { mttr: "0 hrs", mtbf: "0 días", availability: "100%" };
   let totalRepairHours = 0;
@@ -354,20 +375,6 @@ export function calculateKPIs(logs = []) {
   const mtbf = totalFailures > 0 ? (30 / totalFailures).toFixed(1) + " días" : "30+ días";
   const availability = totalFailures > 0 ? Math.max(0, 100 - (totalRepairHours / 720) * 100).toFixed(1) + "%" : "100%";
   return { mttr, mtbf, availability };
-}
-
-export function logActivity(user, moduleName, action, details) {
-  try {
-    addDoc(collection(db, "activity_logs"), {
-      user: user || "Usuario",
-      module: moduleName,
-      action: action,
-      details: details,
-      timestamp: serverTimestamp(),
-    });
-  } catch (err) {
-    console.error(err);
-  }
 }
 
 export function exportToPdf(title, headers, rows, filename = "reporte") {
@@ -387,13 +394,4 @@ export function exportToCsv(filename, rows) {
   link.href = URL.createObjectURL(blob);
   link.download = `${filename}.csv`;
   link.click();
-}
-
-export function shareText(title, text, url) {
-  if (navigator.share) {
-    navigator.share({ title, text, url }).catch(() => {});
-  } else {
-    navigator.clipboard.writeText(`${title}\n${text}\n${url}`);
-    alert("Copiado al portapapeles");
-  }
 }
