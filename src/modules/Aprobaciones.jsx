@@ -1,163 +1,272 @@
-import React, { useState, useEffect, useMemo } from "react";
-import { collection, onSnapshot, updateDoc, doc, serverTimestamp, query, orderBy } from "firebase/firestore";
-import { db } from "../firebase.js";
-import { CheckCircle2, XCircle, Clock, ShieldCheck, Filter, Search, Download, AlertCircle } from "lucide-react";
-import { inputStyle, primaryButtonStyle, ghostButtonStyle, exportToCsv, logActivity, CenteredMessage, ModalShell, ConfirmDialog, EmptyState, Field } from "../shared.jsx";
-
-const APPROVAL_TYPES = [
-  { value: "compra_material", label: "Compra de Material" },
-  { value: "ajuste_stock", label: "Ajuste de Inventario" },
-  { value: "cierre_calidad", label: "Cierre de No Conformidad" },
-  { value: "presupuesto", label: "Aprobación de Presupuesto" },
-];
-
-const STATUS_MAP = {
-  pendiente: { label: "Pendiente", color: "#FF9500", bg: "rgba(255, 149, 0, 0.15)", icon: Clock },
-  aprobado: { label: "Aprobado", color: "#34C759", bg: "rgba(52, 199, 89, 0.15)", icon: CheckCircle2 },
-  rechazado: { label: "Rechazado", color: "#FF3B30", bg: "rgba(255, 59, 48, 0.15)", icon: XCircle },
-};
+import React, { useState, useEffect } from "react";
+import { collection, onSnapshot, doc, updateDoc, serverTimestamp } from "firebase/firestore";
+import { db } from "./firebase.js";
+import { 
+  CheckCircle2, 
+  XCircle, 
+  Clock, 
+  Filter, 
+  Search, 
+  FileCheck, 
+  ShieldAlert, 
+  User, 
+  Calendar,
+  Download
+} from "lucide-react";
+import { 
+  primaryButtonStyle, 
+  dangerButtonStyle, 
+  ghostButtonStyle, 
+  inputStyle, 
+  CenteredMessage, 
+  EmptyState, 
+  logActivity, 
+  exportToCsv, 
+  inDateRange, 
+  DateRangeFilter, 
+  StatusBadge 
+} from "./shared.jsx";
 
 export default function Aprobaciones({ user }) {
-  const [requests, setRequests] = useState([]);
+  const [approvals, setApprovals] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [filterStatus, setFilterStatus] = useState("pendiente");
-  const [search, setSearch] = useState("");
-  const [selectedRequest, setSelectedRequest] = useState(null);
-  const [actionType, setActionType] = useState(null); // 'approve' | 'reject'
-  const [comment, setComment] = useState("");
+  const [filterStatus, setFilterStatus] = useState("todos"); // "todos", "pendiente", "aprobado", "rechazado"
+  const [searchTerm, setSearchTerm] = useState("");
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
+  const [processingId, setProcessingId] = useState(null);
 
+  // Escuchar solicitudes de aprobación en Firestore
   useEffect(() => {
-    const q = query(collection(db, "approvals"), orderBy("createdAt", "desc"));
-    return onSnapshot(q, (snap) => {
-      setRequests(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+    const unsub = onSnapshot(collection(db, "approvals"), (snap) => {
+      const docs = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      setApprovals(docs);
       setLoading(false);
     });
+    return () => unsub();
   }, []);
 
-  const handleActionSubmit = async (e) => {
-    e.preventDefault();
-    if (!selectedRequest || !actionType) return;
+  // Manejar acción de Aprobar o Rechazar
+  const handleDecision = async (approvalId, title, newStatus) => {
+    setProcessingId(approvalId);
+    try {
+      const approvalRef = doc(db, "approvals", approvalId);
+      await updateDoc(approvalRef, {
+        status: newStatus,
+        reviewedBy: user?.email || "Operador",
+        reviewedAt: serverTimestamp(),
+      });
 
-    const newStatus = actionType === "approve" ? "aprobado" : "rechazado";
-    const payload = {
-      status: newStatus,
-      reviewedBy: user.email,
-      reviewerComment: comment,
-      reviewedAt: serverTimestamp(),
-    };
-
-    await updateDoc(doc(db, "approvals", selectedRequest.id), payload);
-    logActivity(user.email, "Aprobaciones", newStatus === "aprobado" ? "Aprobado" : "Rechazado", selectedRequest.title);
-
-    setSelectedRequest(null);
-    setActionType(null);
-    setComment("");
+      // Registrar la firma electrónica en auditoría
+      await logActivity(
+        user?.email,
+        "Aprobaciones",
+        `Solicitud ${newStatus.toUpperCase()}`,
+        `Autorización para '${title}' marcada como ${newStatus}`
+      );
+    } catch (err) {
+      console.error("Error al procesar la aprobación:", err);
+      alert("Error al guardar la decisión en el servidor.");
+    } finally {
+      setProcessingId(null);
+    }
   };
 
-  const filtered = useMemo(() => {
-    return requests.filter((r) => {
-      if (filterStatus !== "todas" && r.status !== filterStatus) return false;
-      const term = search.toLowerCase();
-      return (
-        `${r.title} ${r.requestedBy || ""} ${r.details || ""}`.toLowerCase().includes(term)
-      );
-    });
-  }, [requests, filterStatus, search]);
+  // Filtrado dinámico
+  const filteredApprovals = approvals.filter((item) => {
+    const matchesStatus = filterStatus === "todos" || item.status === filterStatus;
+    const matchesSearch = 
+      (item.title || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (item.requester || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (item.category || "").toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesDate = inDateRange(item.createdAt || item.timestamp, fromDate, toDate);
 
-  const stats = useMemo(() => {
-    const pendientes = requests.filter((r) => r.status === "pendiente").length;
-    const aprobadas = requests.filter((r) => r.status === "aprobado").length;
-    const rechazadas = requests.filter((r) => r.status === "rechazado").length;
-    return { pendientes, aprobadas, rechazadas };
-  }, [requests]);
+    return matchesStatus && matchesSearch && matchesDate;
+  });
+
+  // Contadores para métricas superiores
+  const pendingCount = approvals.filter((a) => a.status === "pendiente").length;
+  const approvedCount = approvals.filter((a) => a.status === "aprobado").length;
+  const rejectedCount = approvals.filter((a) => a.status === "rechazado").length;
+
+  if (loading) {
+    return <CenteredMessage text="Cargando centro de aprobaciones y firmas..." />;
+  }
 
   return (
     <div style={{ maxWidth: 1200, margin: "0 auto", paddingBottom: 40 }}>
-      {/* Header */}
+      {/* Encabezado del Módulo */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24, flexWrap: "wrap", gap: 16 }}>
         <div>
-          <span style={{ background: "rgba(52, 199, 89, 0.15)", color: "#34C759", padding: "4px 8px", borderRadius: 6, fontSize: 12, fontWeight: 700, letterSpacing: 1 }}>
-            WORKFLOW APPROVALS
-          </span>
-          <h1 style={{ fontSize: 28, fontWeight: 800, margin: "6px 0 0", letterSpacing: "-0.5px" }}>Centro de Aprobaciones</h1>
-        </div>
-      </div>
-
-      {/* KPI Cards */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 14, marginBottom: 28 }}>
-        <KpiCard label="Pendientes de Firma" value={stats.pendientes} icon={Clock} accentColor="#FF9500" badge={stats.pendientes > 0 ? "Acción Requerida" : null} />
-        <KpiCard label="Aprobadas" value={stats.aprobadas} icon={CheckCircle2} accentColor="#34C759" />
-        <KpiCard label="Rechazadas" value={stats.rechazadas} icon={XCircle} accentColor="#FF3B30" />
-      </div>
-
-      {/* Filtros y Toolbar */}
-      <div style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 14, padding: 12, marginBottom: 24, display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
-        <div style={{ position: "relative", flex: "1 1 240px" }}>
-          <Search size={16} color="rgba(255,255,255,0.4)" style={{ position: "absolute", left: 12, top: 12 }} />
-          <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar solicitud, solicitante..." style={{ ...inputStyle, paddingLeft: 36, borderRadius: 8, background: "rgba(0,0,0,0.2)" }} />
+          <h1 style={{ fontSize: 24, fontWeight: 800, margin: "0 0 4px", color: "#fff", letterSpacing: "-0.5px" }}>
+            Centro de Aprobaciones
+          </h1>
+          <p style={{ margin: 0, fontSize: 13, color: "rgba(255,255,255,0.5)" }}>
+            Gestión y firma de autorizaciones operativas de planta.
+          </p>
         </div>
 
-        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-          <Chip active={filterStatus === "pendiente"} onClick={() => setFilterStatus("pendiente")}>Pendientes</Chip>
-          <Chip active={filterStatus === "aprobado"} onClick={() => setFilterStatus("aprobado")}>Aprobadas</Chip>
-          <Chip active={filterStatus === "rechazado"} onClick={() => setFilterStatus("rechazado")}>Rechazadas</Chip>
-          <Chip active={filterStatus === "todas"} onClick={() => setFilterStatus("todas")}>Todas</Chip>
-        </div>
-
-        <button onClick={() => exportToCsv("reporte-aprobaciones", filtered)} style={{ ...ghostButtonStyle, marginLeft: "auto", borderRadius: 8 }}>
-          <Download size={16} /> Exportar
+        <button onClick={() => exportToCsv("aprobaciones_planta", filteredApprovals)} style={ghostButtonStyle}>
+          <Download size={16} /> Exportar Reporte
         </button>
       </div>
 
-      {/* Grid de Solicitudes */}
-      {loading ? (
-        <CenteredMessage text="Cargando solicitudes de aprobación..." />
-      ) : filtered.length === 0 ? (
-        <EmptyState Icon={ShieldCheck} title="Sin solicitudes pendientes" message="No hay solicitudes para revisar en este estado." />
+      {/* Tarjetas de Métricas Rápidas */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 16, marginBottom: 24 }}>
+        <div style={{ background: "rgba(255, 149, 0, 0.1)", border: "1px solid rgba(255, 149, 0, 0.2)", borderRadius: 14, padding: "16px 20px" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <span style={{ fontSize: 12, fontWeight: 700, color: "#FF9500" }}>PENDIENTES</span>
+            <Clock size={18} color="#FF9500" />
+          </div>
+          <div style={{ fontSize: 28, fontWeight: 800, color: "#fff", marginTop: 6 }}>{pendingCount}</div>
+        </div>
+
+        <div style={{ background: "rgba(52, 199, 89, 0.1)", border: "1px solid rgba(52, 199, 89, 0.2)", borderRadius: 14, padding: "16px 20px" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <span style={{ fontSize: 12, fontWeight: 700, color: "#34C759" }}>APROBADAS</span>
+            <CheckCircle2 size={18} color="#34C759" />
+          </div>
+          <div style={{ fontSize: 28, fontWeight: 800, color: "#fff", marginTop: 6 }}>{approvedCount}</div>
+        </div>
+
+        <div style={{ background: "rgba(255, 59, 48, 0.1)", border: "1px solid rgba(255, 59, 48, 0.2)", borderRadius: 14, padding: "16px 20px" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <span style={{ fontSize: 12, fontWeight: 700, color: "#FF3B30" }}>RECHAZADAS</span>
+            <XCircle size={18} color="#FF3B30" />
+          </div>
+          <div style={{ fontSize: 28, fontWeight: 800, color: "#fff", marginTop: 6 }}>{rejectedCount}</div>
+        </div>
+      </div>
+
+      {/* Toolbar de Filtros y Búsqueda */}
+      <div 
+        style={{ 
+          background: "rgba(255,255,255,0.02)", 
+          border: "1px solid rgba(255,255,255,0.06)", 
+          borderRadius: 14, 
+          padding: 16, 
+          marginBottom: 20,
+          display: "flex",
+          gap: 12,
+          flexWrap: "wrap",
+          alignItems: "center",
+          justifyContent: "space-between"
+        }}
+      >
+        <div style={{ display: "flex", gap: 10, flex: 1, minWidth: 260 }}>
+          <div style={{ position: "relative", flex: 1 }}>
+            <Search size={16} color="rgba(255,255,255,0.4)" style={{ position: "absolute", left: 12, top: 11 }} />
+            <input 
+              type="text" 
+              placeholder="Buscar por título, solicitante o categoría..." 
+              value={searchTerm} 
+              onChange={(e) => setSearchTerm(e.target.value)} 
+              style={{ ...inputStyle, paddingLeft: 36 }} 
+            />
+          </div>
+        </div>
+
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          {/* Select de Estado */}
+          <select 
+            value={filterStatus} 
+            onChange={(e) => setFilterStatus(e.target.value)} 
+            style={{ ...inputStyle, width: "auto" }}
+          >
+            <option value="todos" style={{ background: "#12141d" }}>Todos los estados</option>
+            <option value="pendiente" style={{ background: "#12141d" }}>Pendientes</option>
+            <option value="aprobado" style={{ background: "#12141d" }}>Aprobados</option>
+            <option value="rechazado" style={{ background: "#12141d" }}>Rechazados</option>
+          </select>
+
+          <DateRangeFilter 
+            from={fromDate} 
+            to={toDate} 
+            onFromChange={setFromDate} 
+            onToChange={setToDate} 
+          />
+        </div>
+      </div>
+
+      {/* Lista / Grid de Tarjetas de Aprobación */}
+      {filteredApprovals.length === 0 ? (
+        <EmptyState 
+          Icon={FileCheck} 
+          title="Sin Solicitudes" 
+          message="No hay solicitudes de aprobación registradas con los filtros actuales." 
+        />
       ) : (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(340px, 1fr))", gap: 18 }}>
-          {filtered.map((r) => {
-            const st = STATUS_MAP[r.status] || STATUS_MAP.pendiente;
-            const IconComponent = st.icon;
+        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          {filteredApprovals.map((item) => {
+            const isPending = item.status === "pendiente";
+            const isProcessing = processingId === item.id;
 
             return (
-              <div key={r.id} style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 16, padding: 18, display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
-                <div>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-                    <span style={{ background: st.bg, color: st.color, fontSize: 11, fontWeight: 800, padding: "3px 8px", borderRadius: 6, display: "flex", alignItems: "center", gap: 4 }}>
-                      <IconComponent size={13} /> {st.label.toUpperCase()}
-                    </span>
-                    <span style={{ fontSize: 11, color: "rgba(255,255,255,0.4)" }}>
-                      {r.createdAt?.toDate ? r.createdAt.toDate().toLocaleDateString() : "Reciente"}
+              <div 
+                key={item.id} 
+                style={{ 
+                  background: "rgba(255,255,255,0.02)", 
+                  border: isPending ? "1px solid rgba(255, 149, 0, 0.3)" : "1px solid rgba(255,255,255,0.06)", 
+                  borderRadius: 16, 
+                  padding: "20px 24px",
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  flexWrap: "wrap",
+                  gap: 16,
+                  transition: "all 0.15s ease"
+                }}
+              >
+                {/* Info Principal */}
+                <div style={{ flex: 1, minWidth: 280 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+                    <StatusBadge statusKey={item.status || "pendiente"} />
+                    <span style={{ fontSize: 11, fontWeight: 700, color: "#007AFF", background: "rgba(0,122,255,0.1)", padding: "2px 8px", borderRadius: 6 }}>
+                      {item.category || "General"}
                     </span>
                   </div>
 
-                  <h3 style={{ fontSize: 16, fontWeight: 700, margin: "0 0 6px", color: "#fff" }}>{r.title}</h3>
-                  <div style={{ fontSize: 12, color: "rgba(255,255,255,0.5)", marginBottom: 12 }}>
-                    Solicitado por: <strong style={{ color: "rgba(255,255,255,0.8)" }}>{r.requestedBy}</strong>
-                  </div>
+                  <h3 style={{ fontSize: 16, fontWeight: 700, margin: "0 0 6px", color: "#fff" }}>
+                    {item.title || "Solicitud de Autorización"}
+                  </h3>
+                  
+                  <p style={{ fontSize: 13, color: "rgba(255,255,255,0.6)", margin: "0 0 12px", maxWidth: 650 }}>
+                    {item.description || "Sin detalles adicionales especificados para esta solicitud."}
+                  </p>
 
-                  {r.details && (
-                    <div style={{ background: "rgba(0,0,0,0.2)", padding: 10, borderRadius: 8, fontSize: 13, color: "rgba(255,255,255,0.8)", marginBottom: 14 }}>
-                      {r.details}
-                    </div>
-                  )}
+                  <div style={{ display: "flex", alignItems: "center", gap: 18, fontSize: 11, color: "rgba(255,255,255,0.4)" }}>
+                    <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                      <User size={13} /> Solicitado por: <strong style={{ color: "#fff" }}>{item.requester || "Sistema"}</strong>
+                    </span>
+                    {item.reviewedBy && (
+                      <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                        <FileCheck size={13} color="#34C759" /> Revisado por: <strong style={{ color: "#fff" }}>{item.reviewedBy}</strong>
+                      </span>
+                    )}
+                  </div>
                 </div>
 
-                {/* Footer de Tarjeta */}
-                {r.status === "pendiente" ? (
-                  <div style={{ borderTop: "1px solid rgba(255,255,255,0.05)", paddingTop: 12, display: "flex", gap: 10 }}>
-                    <button onClick={() => { setSelectedRequest(r); setActionType("reject"); }} style={{ ...ghostButtonStyle, flex: 1, color: "#FF3B30", borderColor: "rgba(255, 59, 48, 0.3)", borderRadius: 8 }}>
-                      Rechazar
+                {/* Acciones de Autorización */}
+                {isPending ? (
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <button 
+                      disabled={isProcessing}
+                      onClick={() => handleDecision(item.id, item.title, "rechazado")} 
+                      style={{ ...dangerButtonStyle, padding: "10px 18px", borderRadius: 10 }}
+                    >
+                      <XCircle size={16} /> Rechazar
                     </button>
-                    <button onClick={() => { setSelectedRequest(r); setActionType("approve"); }} style={{ ...primaryButtonStyle, flex: 1, background: "#34C759", borderRadius: 8 }}>
-                      Aprobar
+                    <button 
+                      disabled={isProcessing}
+                      onClick={() => handleDecision(item.id, item.title, "aprobado")} 
+                      style={{ ...primaryButtonStyle, background: "#34C759", padding: "10px 18px", borderRadius: 10 }}
+                    >
+                      <CheckCircle2 size={16} /> Aprobar
                     </button>
                   </div>
                 ) : (
-                  <div style={{ borderTop: "1px solid rgba(255,255,255,0.05)", paddingTop: 10, fontSize: 11, color: "rgba(255,255,255,0.4)" }}>
-                    Revisado por: {r.reviewedBy || "Sistema"}
-                    {r.reviewerComment && <div style={{ fontStyle: "italic", marginTop: 2, color: "rgba(255,255,255,0.6)" }}>"{r.reviewerComment}"</div>}
+                  <div style={{ fontSize: 12, fontWeight: 700, color: item.status === "aprobado" ? "#34C759" : "#FF3B30", background: "rgba(0,0,0,0.2)", padding: "8px 14px", borderRadius: 8 }}>
+                    Firma registrada
                   </div>
                 )}
               </div>
@@ -165,48 +274,6 @@ export default function Aprobaciones({ user }) {
           })}
         </div>
       )}
-
-      {/* Modal de Confirmación de Decisión */}
-      {selectedRequest && actionType && (
-        <ModalShell title={`${actionType === "approve" ? "Aprobar" : "Rechazar"} Solicitud`} onClose={() => setSelectedRequest(null)}>
-          <form onSubmit={handleActionSubmit} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-            <p style={{ margin: 0, fontSize: 14, color: "rgba(255,255,255,0.8)" }}>
-              ¿Estás seguro de que deseas {actionType === "approve" ? "aprobar" : "rechazar"} la solicitud <strong>"{selectedRequest.title}"</strong>?
-            </p>
-
-            <Field label="Observación / Justificación (Opcional)">
-              <textarea value={comment} onChange={(e) => setComment(e.target.value)} placeholder="Añade un comentario relevante para la auditoría..." style={{ ...inputStyle, minHeight: 80 }} />
-            </Field>
-
-            <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 10 }}>
-              <button type="button" onClick={() => setSelectedRequest(null)} style={ghostButtonStyle}>Cancelar</button>
-              <button type="submit" style={{ ...primaryButtonStyle, background: actionType === "approve" ? "#34C759" : "#FF3B30" }}>
-                Confirmar {actionType === "approve" ? "Aprobación" : "Rechazo"}
-              </button>
-            </div>
-          </form>
-        </ModalShell>
-      )}
     </div>
-  );
-}
-
-function KpiCard({ label, value, icon: Icon, accentColor, badge }) {
-  return (
-    <div style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 16, padding: "18px 20px", position: "relative" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <span style={{ fontSize: 13, color: "rgba(255,255,255,0.5)", fontWeight: 600 }}>{label}</span>
-        {badge && <span style={{ background: accentColor, color: "#fff", fontSize: 10, padding: "2px 6px", borderRadius: 4, fontWeight: 700 }}>{badge}</span>}
-      </div>
-      <div style={{ fontSize: 32, fontWeight: 800, marginTop: 8, color: "#fff" }}>{value}</div>
-    </div>
-  );
-}
-
-function Chip({ active, onClick, children }) {
-  return (
-    <button onClick={onClick} style={{ background: active ? "#007AFF" : "rgba(255,255,255,0.05)", color: active ? "#fff" : "rgba(255,255,255,0.7)", border: "none", padding: "6px 12px", borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
-      {children}
-    </button>
   );
 }
