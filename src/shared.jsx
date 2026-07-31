@@ -221,8 +221,8 @@ export function StatCard({ label, value, color, Icon }) {
         </div>
       </div>
       {Icon && (
-        <div style={{ width: 44, height: 44, borderRadius: 10, backgroundColor: `${cardColor}18`, display: "flex", alignItems: "center", justifyCenter: "center" }}>
-          <Icon size={22} color={cardColor} style={{ margin: "auto" }} />
+        <div style={{ width: 44, height: 44, borderRadius: 10, backgroundColor: `${cardColor}18`, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <Icon size={22} color={cardColor} />
         </div>
       )}
     </div>
