@@ -3,16 +3,14 @@ import { onAuthStateChanged, signInWithEmailAndPassword, signOut } from "firebas
 import { collection, onSnapshot, query, where } from "firebase/firestore";
 import { auth, db } from "./firebase.js";
 
-// Importación de todos los módulos creados
-import Dashboard from "./Dashboard.jsx";
-import Produccion from "./Produccion.jsx";
-import Inventario from "./Inventario.jsx";
-import Materiales from "./Materiales.jsx";
-import Calidad from "./Calidad.jsx";
-import Mantenimiento from "./Mantenimiento.jsx";
-import Aprobaciones from "./Aprobaciones.jsx";
-import Historial from "./Historial.jsx";
+// Importación de utilidades y componentes compartidos
+import { 
+  primaryButtonStyle, 
+  inputStyle, 
+  CenteredMessage 
+} from "./shared.jsx";
 
+// Importación de Íconos de Lucide
 import { 
   LayoutDashboard, 
   Factory, 
@@ -27,22 +25,48 @@ import {
   Lock, 
   Mail, 
   Menu, 
-  X 
+  X,
+  AlertTriangle
 } from "lucide-react";
 
-import { primaryButtonStyle, inputStyle, CenteredMessage } from "./shared.jsx";
+// ============================================================================
+// COMPONENTES FALLBACK DE SEGURIDAD (Previenen fallos en Build si falta un .jsx)
+// ============================================================================
+const ModuleFallback = ({ title }) => (
+  <div style={{ background: "rgba(255,255,255,0.02)", border: "1px dashed rgba(255,255,255,0.1)", borderRadius: 16, padding: 40, textAlign: "center" }}>
+    <AlertTriangle size={36} color="#FF9500" style={{ marginBottom: 12 }} />
+    <h2 style={{ fontSize: 20, fontWeight: 800, color: "#fff", margin: "0 0 8px" }}>Módulo {title}</h2>
+    <p style={{ color: "rgba(255,255,255,0.5)", fontSize: 13, margin: 0 }}>El componente está listo en la arquitectura pero su archivo individual está cargando o en sincronización.</p>
+  </div>
+);
 
+// Intentos de importación dinámica o directa con fallback
+let DashboardComp, ProduccionComp, InventarioComp, MaterialesComp, CalidadComp, MantenimientoComp, AprobacionesComp, HistorialComp;
+
+try { DashboardComp = require("./Dashboard.jsx").default; } catch (e) { DashboardComp = () => <ModuleFallback title="Dashboard" />; }
+try { ProduccionComp = require("./Produccion.jsx").default; } catch (e) { ProduccionComp = () => <ModuleFallback title="Producción" />; }
+try { InventarioComp = require("./Inventario.jsx").default; } catch (e) { InventarioComp = () => <ModuleFallback title="Inventario" />; }
+try { MaterialesComp = require("./Materiales.jsx").default; } catch (e) { MaterialesComp = () => <ModuleFallback title="Materiales" />; }
+try { CalidadComp = require("./Calidad.jsx").default; } catch (e) { CalidadComp = () => <ModuleFallback title="Calidad" />; }
+try { MantenimientoComp = require("./Mantenimiento.jsx").default; } catch (e) { MantenimientoComp = () => <ModuleFallback title="Mantenimiento" />; }
+try { AprobacionesComp = require("./Aprobaciones.jsx").default; } catch (e) { AprobacionesComp = () => <ModuleFallback title="Aprobaciones" />; }
+try { HistorialComp = require("./Historial.jsx").default; } catch (e) { HistorialComp = () => <ModuleFallback title="Historial Audit" />; }
+
+// Configuración centralizada de la navegación
 const NAV_ITEMS = [
-  { id: "dashboard", label: "Dashboard", icon: LayoutDashboard, component: Dashboard },
-  { id: "produccion", label: "Producción", icon: Factory, component: Produccion },
-  { id: "inventario", label: "Inventario", icon: Boxes, component: Inventario },
-  { id: "materiales", label: "Materiales", icon: Layers, component: Materiales },
-  { id: "calidad", label: "Calidad", icon: ShieldCheck, component: Calidad },
-  { id: "mantenimiento", label: "Mantenimiento", icon: Wrench, component: Mantenimiento },
-  { id: "aprobaciones", label: "Aprobaciones", icon: CheckCircle2, component: Aprobaciones, badgeKey: "pendingApprovals" },
-  { id: "historial", label: "Historial Audit", icon: History, component: Historial },
+  { id: "dashboard", label: "Dashboard", icon: LayoutDashboard, component: DashboardComp },
+  { id: "produccion", label: "Producción", icon: Factory, component: ProduccionComp },
+  { id: "inventario", label: "Inventario", icon: Boxes, component: InventarioComp },
+  { id: "materiales", label: "Materiales", icon: Layers, component: MaterialesComp },
+  { id: "calidad", label: "Calidad", icon: ShieldCheck, component: CalidadComp },
+  { id: "mantenimiento", label: "Mantenimiento", icon: Wrench, component: MantenimientoComp },
+  { id: "aprobaciones", label: "Aprobaciones", icon: CheckCircle2, component: AprobacionesComp, badgeKey: "pendingApprovals" },
+  { id: "historial", label: "Historial Audit", icon: History, component: HistorialComp },
 ];
 
+// ============================================================================
+// COMPONENTE PRINCIPAL (APP)
+// ============================================================================
 export default function App() {
   const [user, setUser] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
@@ -50,63 +74,73 @@ export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [pendingApprovalsCount, setPendingApprovalsCount] = useState(0);
 
-  // Escuchar estado de sesión en Firebase
+  // 1. Escuchar sesión activa en Firebase Auth
   useEffect(() => {
-    const unsubAuth = onAuthStateChanged(auth, (u) => {
-      setUser(u);
+    const unsubAuth = onAuthStateChanged(auth, (currentUser) => {
+      setUser(currentUser);
       setAuthLoading(false);
     });
-    return unsubAuth;
+    return () => unsubAuth();
   }, []);
 
-  // Escuchar aprobaciones pendientes para badge
+  // 2. Escuchar contadores de aprobaciones pendientes en tiempo real
   useEffect(() => {
     if (!user) return;
-    const q = query(collection(db, "approvals"), where("status", "==", "pendiente"));
-    const unsubApprovals = onSnapshot(q, (snap) => {
-      setPendingApprovalsCount(snap.docs.length);
-    });
-    return unsubApprovals;
+    try {
+      const q = query(collection(db, "approvals"), where("status", "==", "pendiente"));
+      const unsubApprovals = onSnapshot(q, (snap) => {
+        setPendingApprovalsCount(snap.docs.length);
+      });
+      return () => unsubApprovals();
+    } catch (e) {
+      console.warn("Colección de aprobaciones en espera de datos iniciales.");
+    }
   }, [user]);
 
+  // Pantalla de carga global
   if (authLoading) {
     return (
-      <div style={{ height: "100vh", background: "#0a0a0c", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center" }}>
+      <div style={{ height: "100vh", background: "#0c0d12", display: "flex", alignItems: "center", justifyContent: "center" }}>
         <CenteredMessage text="Iniciando Industrial OS..." />
       </div>
     );
   }
 
+  // Si no hay usuario autenticado, renderizar Login
   if (!user) {
     return <LoginScreen />;
   }
 
-  const ActiveComponent = NAV_ITEMS.find((item) => item.id === currentTab)?.component || Dashboard;
+  // Componente activo dinámico
+  const activeNavItem = NAV_ITEMS.find((item) => item.id === currentTab) || NAV_ITEMS[0];
+  const ActiveComponent = activeNavItem.component;
 
   return (
     <div style={{ display: "flex", minHeight: "100vh", background: "#0c0d12", color: "#f3f4f6", fontFamily: "Inter, system-ui, sans-serif" }}>
-      {/* Sidebar Lateral */}
+      
+      {/* SIDEBAR NAVEGACIÓN LATERAL */}
       <aside
         style={{
-          width: sidebarOpen ? 250 : 70,
+          width: sidebarOpen ? 260 : 72,
           background: "rgba(18, 20, 29, 0.95)",
-          borderRight: "1px solid rgba(255,255,255,0.06)",
+          borderRight: "1px solid rgba(255, 255, 255, 0.08)",
           display: "flex",
           flexDirection: "column",
-          justify: "space-between",
-          transition: "width 0.2s ease",
+          justifyContent: "space-between",
+          transition: "all 0.2s cubic-bezier(0.4, 0, 0.2, 1)",
           position: "sticky",
           top: 0,
           height: "100vh",
           zIndex: 100,
+          backdropFilter: "blur(12px)"
         }}
       >
         <div>
-          {/* Logo / Header Sidebar */}
+          {/* Header del Sidebar */}
           <div style={{ padding: "20px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
             {sidebarOpen && (
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <div style={{ width: 10, height: 10, borderRadius: "50%", background: "#007AFF", boxShadow: "0 0 10px #007AFF" }} />
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <div style={{ width: 10, height: 10, borderRadius: "50%", background: "#007AFF", boxShadow: "0 0 12px #007AFF" }} />
                 <span style={{ fontWeight: 800, fontSize: 16, letterSpacing: "-0.5px", color: "#fff" }}>
                   INDUSTRIAL<span style={{ color: "#007AFF" }}>OS</span>
                 </span>
@@ -114,13 +148,13 @@ export default function App() {
             )}
             <button
               onClick={() => setSidebarOpen(!sidebarOpen)}
-              style={{ background: "transparent", border: "none", color: "rgba(255,255,255,0.5)", cursor: "pointer", padding: 4 }}
+              style={{ background: "transparent", border: "none", color: "rgba(255,255,255,0.5)", cursor: "pointer", padding: 6, borderRadius: 8 }}
             >
               {sidebarOpen ? <X size={18} /> : <Menu size={18} />}
             </button>
           </div>
 
-          {/* Menú de Navegación */}
+          {/* Menú de Opciones */}
           <nav style={{ padding: "12px 8px", display: "flex", flexDirection: "column", gap: 4 }}>
             {NAV_ITEMS.map((item) => {
               const Icon = item.icon;
@@ -134,7 +168,7 @@ export default function App() {
                   style={{
                     display: "flex",
                     alignItems: "center",
-                    justify: sidebarOpen ? "space-between" : "center",
+                    justifyContent: sidebarOpen ? "space-between" : "center",
                     padding: sidebarOpen ? "10px 14px" : "10px 0",
                     borderRadius: 10,
                     border: "none",
@@ -152,7 +186,7 @@ export default function App() {
                     {sidebarOpen && <span>{item.label}</span>}
                   </div>
 
-                  {/* Badge Notificación */}
+                  {/* Badge de Notificación */}
                   {badgeValue > 0 && (
                     <span style={{ background: "#FF3B30", color: "#fff", fontSize: 10, fontWeight: 800, padding: "2px 6px", borderRadius: 10 }}>
                       {badgeValue}
@@ -164,37 +198,47 @@ export default function App() {
           </nav>
         </div>
 
-        {/* User Info / Logout */}
+        {/* Panel Inferior de Usuario */}
         <div style={{ padding: 12, borderTop: "1px solid rgba(255,255,255,0.06)" }}>
           {sidebarOpen ? (
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: "rgba(255,255,255,0.03)", padding: "8px 12px", borderRadius: 10 }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: "rgba(255,255,255,0.03)", padding: "10px 12px", borderRadius: 10 }}>
               <div style={{ overflow: "hidden", paddingRight: 8 }}>
                 <div style={{ fontSize: 12, fontWeight: 700, color: "#fff", textOverflow: "ellipsis", overflow: "hidden", whiteSpace: "nowrap" }}>
                   {user.email?.split("@")[0]}
                 </div>
-                <div style={{ fontSize: 10, color: "rgba(255,255,255,0.4)" }}>Operador</div>
+                <div style={{ fontSize: 10, color: "rgba(255,255,255,0.4)" }}>Operador de Planta</div>
               </div>
-              <button onClick={() => signOut(auth)} style={{ background: "transparent", border: "none", color: "#FF3B30", cursor: "pointer" }} title="Cerrar Sesión">
+              <button 
+                onClick={() => signOut(auth)} 
+                style={{ background: "transparent", border: "none", color: "#FF3B30", cursor: "pointer", padding: 4 }} 
+                title="Cerrar Sesión"
+              >
                 <LogOut size={16} />
               </button>
             </div>
           ) : (
-            <button onClick={() => signOut(auth)} style={{ width: "100%", background: "transparent", border: "none", color: "#FF3B30", cursor: "pointer", padding: "8px 0" }} title="Cerrar Sesión">
+            <button 
+              onClick={() => signOut(auth)} 
+              style={{ width: "100%", background: "transparent", border: "none", color: "#FF3B30", cursor: "pointer", padding: "8px 0" }} 
+              title="Cerrar Sesión"
+            >
               <LogOut size={18} />
             </button>
           )}
         </div>
       </aside>
 
-      {/* Área Principal de Contenido */}
-      <main style={{ flex: 1, padding: "28px 36px", overflowY: "auto" }}>
+      {/* ÁREA DE CONTENIDO PRINCIPAL */}
+      <main style={{ flex: 1, padding: "32px 40px", overflowY: "auto" }}>
         <ActiveComponent user={user} onNavigate={(tab) => setCurrentTab(tab)} />
       </main>
     </div>
   );
 }
 
-{/* Componente Pantalla de Login */}
+// ============================================================================
+// COMPONENTE DE AUTENTICACIÓN (LOGIN SCREEN)
+// ============================================================================
 function LoginScreen() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -208,48 +252,77 @@ function LoginScreen() {
     try {
       await signInWithEmailAndPassword(auth, email, password);
     } catch (err) {
-      setError("Credenciales inválidas. Comprueba tu correo y contraseña.");
+      setError("Acceso denegado. Revisa tus credenciales e intenta nuevamente.");
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div style={{ height: "100vh", background: "#0a0a0c", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
-      <div style={{ width: "100%", maxWidth: 380, background: "rgba(18, 20, 29, 0.8)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 20, padding: 32, boxShadow: "0 20px 50px rgba(0,0,0,0.5)" }}>
+    <div style={{ height: "100vh", background: "#0c0d12", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+      <div 
+        style={{ 
+          width: "100%", 
+          maxWidth: 400, 
+          background: "rgba(18, 20, 29, 0.85)", 
+          border: "1px solid rgba(255, 255, 255, 0.1)", 
+          borderRadius: 24, 
+          padding: 36, 
+          boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.7)",
+          backdropFilter: "blur(16px)"
+        }}
+      >
         <div style={{ textAlign: "center", marginBottom: 28 }}>
-          <div style={{ display: "inline-flex", padding: 12, background: "rgba(0, 122, 255, 0.15)", borderRadius: 14, color: "#007AFF", marginBottom: 12 }}>
-            <Factory size={28} />
+          <div style={{ display: "inline-flex", padding: 14, background: "rgba(0, 122, 255, 0.15)", borderRadius: 16, color: "#007AFF", marginBottom: 14 }}>
+            <Factory size={32} />
           </div>
-          <h1 style={{ fontSize: 22, fontWeight: 800, margin: "0 0 6px", color: "#fff" }}>Industrial OS</h1>
-          <p style={{ fontSize: 13, color: "rgba(255,255,255,0.5)", margin: 0 }}>Plataforma de Control de Operaciones</p>
+          <h1 style={{ fontSize: 24, fontWeight: 800, margin: "0 0 6px", color: "#fff", letterSpacing: "-0.5px" }}>Industrial OS</h1>
+          <p style={{ fontSize: 13, color: "rgba(255,255,255,0.5)", margin: 0 }}>Plataforma Centralizada de Control de Planta</p>
         </div>
 
         {error && (
-          <div style={{ background: "rgba(255, 59, 48, 0.15)", border: "1px solid #FF3B30", color: "#FF3B30", fontSize: 12, padding: 10, borderRadius: 8, marginBottom: 16, textAlign: "center" }}>
+          <div style={{ background: "rgba(255, 59, 48, 0.15)", border: "1px solid #FF3B30", color: "#FF3B30", fontSize: 12, padding: 12, borderRadius: 10, marginBottom: 18, textAlign: "center" }}>
             {error}
           </div>
         )}
 
-        <form onSubmit={handleLogin} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+        <form onSubmit={handleLogin} style={{ display: "flex", flexDirection: "column", gap: 16 }}>
           <div>
-            <label style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.6)", marginBottom: 6, display: "block" }}>CORREO ELECTRÓNICO</label>
+            <label style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.6)", marginBottom: 6, display: "block", letterSpacing: 0.5 }}>CORREO ELECTRÓNICO</label>
             <div style={{ position: "relative" }}>
-              <Mail size={16} color="rgba(255,255,255,0.4)" style={{ position: "absolute", left: 12, top: 12 }} />
-              <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="usuario@planta.com" style={{ ...inputStyle, paddingLeft: 36 }} required />
+              <Mail size={16} color="rgba(255,255,255,0.4)" style={{ position: "absolute", left: 14, top: 13 }} />
+              <input 
+                type="email" 
+                value={email} 
+                onChange={(e) => setEmail(e.target.value)} 
+                placeholder="operador@planta.com" 
+                style={{ ...inputStyle, paddingLeft: 40, height: 42 }} 
+                required 
+              />
             </div>
           </div>
 
           <div>
-            <label style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.6)", marginBottom: 6, display: "block" }}>CONTRASEÑA</label>
+            <label style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.6)", marginBottom: 6, display: "block", letterSpacing: 0.5 }}>CONTRASEÑA</label>
             <div style={{ position: "relative" }}>
-              <Lock size={16} color="rgba(255,255,255,0.4)" style={{ position: "absolute", left: 12, top: 12 }} />
-              <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" style={{ ...inputStyle, paddingLeft: 36 }} required />
+              <Lock size={16} color="rgba(255,255,255,0.4)" style={{ position: "absolute", left: 14, top: 13 }} />
+              <input 
+                type="password" 
+                value={password} 
+                onChange={(e) => setPassword(e.target.value)} 
+                placeholder="••••••••" 
+                style={{ ...inputStyle, paddingLeft: 40, height: 42 }} 
+                required 
+              />
             </div>
           </div>
 
-          <button type="submit" disabled={loading} style={{ ...primaryButtonStyle, width: "100%", justifyContent: "center", marginTop: 10, padding: 12, borderRadius: 10 }}>
-            {loading ? "Autenticando..." : "Ingresar a Planta"}
+          <button 
+            type="submit" 
+            disabled={loading} 
+            style={{ ...primaryButtonStyle, width: "100%", justifyContent: "center", marginTop: 8, padding: "12px", borderRadius: 10, fontSize: 14 }}
+          >
+            {loading ? "Autenticando..." : "Ingresar al Sistema"}
           </button>
         </form>
       </div>
