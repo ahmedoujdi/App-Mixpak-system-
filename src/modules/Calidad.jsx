@@ -1,23 +1,28 @@
-import React, { useState, useEffect } from "react";
-import { collection, onSnapshot, addDoc, doc, updateDoc, serverTimestamp } from "firebase/firestore";
+import React, { useState, useEffect, useMemo } from "react";
+import { collection, onSnapshot, doc, updateDoc, serverTimestamp, addDoc } from "firebase/firestore";
 import { db } from "./firebase.js";
 import { 
   ShieldCheck, 
-  Plus, 
-  Search, 
-  Download, 
-  AlertOctagon, 
+  AlertTriangle, 
   CheckCircle2, 
-  Clock, 
-  AlertTriangle,
-  FileText,
-  User,
-  Filter
+  XCircle, 
+  Search, 
+  Plus, 
+  Download, 
+  FileSpreadsheet, 
+  TrendingUp, 
+  DollarSign, 
+  Layers, 
+  User, 
+  ClipboardCheck, 
+  Eye, 
+  Building2 
 } from "lucide-react";
 import { 
   primaryButtonStyle, 
   secondaryButtonStyle, 
   ghostButtonStyle, 
+  dangerButtonStyle, 
   inputStyle, 
   CenteredMessage, 
   EmptyState, 
@@ -27,169 +32,239 @@ import {
   exportToCsv, 
   inDateRange, 
   DateRangeFilter, 
-  SEVERITY_COLORS,
-  formatTimestamp
+  StatusBadge, 
+  formatTimestamp 
 } from "./shared.jsx";
 
 export default function Calidad({ user }) {
-  const [issues, setIssues] = useState([]);
+  const [inspections, setInspections] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [searchTerm, setSearchTerm] = useState("");
+  const [filterResult, setFilterResult] = useState("todos"); // "todos" | "aprobado" | "rechazado" | "en_revision"
   const [filterSeverity, setFilterSeverity] = useState("todos");
-  const [filterStatus, setFilterStatus] = useState("todos");
+  const [searchTerm, setSearchTerm] = useState("");
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
-  const [showModal, setShowModal] = useState(false);
-  const [processing, setProcessing] = useState(false);
 
-  // Estado del Formulario
-  const [formData, setFormData] = useState({
-    title: "",
-    lotNumber: "",
-    severity: "media",
-    description: "",
-    actionRequired: "",
+  // Estados para Modal de Nueva Inspección
+  const [showNewModal, setShowNewModal] = useState(false);
+  const [processing, setProcessing] = useState(false);
+  const [newInspection, setNewInspection] = useState({
+    batchNumber: "",
+    productName: "",
+    line: "Línea 1 - Ensamble",
+    sampleSize: 50,
+    defectsCount: 0,
+    severity: "menor", // "menor" | "mayor" | "critica"
+    scrapCost: "",
+    notes: "",
+    status: "aprobado" // "aprobado" | "rechazado" | "en_revision"
   });
 
-  // Escuchar registros de calidad en tiempo real
+  // Estado para Inspección Seleccionada (Vista Detallada / Liberación CAPA)
+  const [selectedItem, setSelectedItem] = useState(null);
+  const [capaAction, setCapaAction] = useState("");
+
+  // Carga en tiempo real de Inspecciones de Calidad
   useEffect(() => {
-    const unsub = onSnapshot(collection(db, "quality_issues"), (snap) => {
+    const unsub = onSnapshot(collection(db, "quality_inspections"), (snap) => {
       const docs = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-      setIssues(docs);
+      setInspections(docs);
       setLoading(false);
     });
     return () => unsub();
   }, []);
 
-  // Crear reporte de Calidad
-  const handleCreateIssue = async (e) => {
+  // Registrar Inspección
+  const handleCreateInspection = async (e) => {
     e.preventDefault();
-    if (!formData.title.trim() || !formData.lotNumber.trim()) {
-      alert("Por favor completa el título y el número de lote.");
-      return;
+    setProcessing(true);
+
+    const defects = Number(newInspection.defectsCount) || 0;
+    const sample = Number(newInspection.sampleSize) || 1;
+    const defectRate = ((defects / sample) * 100).toFixed(2);
+    
+    // Auto-determinación de resultado según gravedad/defectos si se requiere
+    let autoStatus = newInspection.status;
+    if (defects > 0 && newInspection.severity === "critica") {
+      autoStatus = "rechazado";
     }
 
-    setProcessing(true);
     try {
-      await addDoc(collection(db, "quality_issues"), {
-        title: formData.title,
-        lotNumber: formData.lotNumber,
-        severity: formData.severity,
-        description: formData.description,
-        actionRequired: formData.actionRequired,
-        status: "abierto", // "abierto", "en_investigacion", "resuelto"
-        reportedBy: user?.email || "Operador",
-        createdAt: serverTimestamp(),
+      await addDoc(collection(db, "quality_inspections"), {
+        ...newInspection,
+        status: autoStatus,
+        sampleSize: sample,
+        defectsCount: defects,
+        defectRate: parseFloat(defectRate),
+        scrapCost: parseFloat(newInspection.scrapCost) || 0,
+        inspector: user?.email || "Inspector de Calidad",
+        createdAt: serverTimestamp()
       });
 
       await logActivity(
         user?.email,
         "Calidad",
-        "Alta No Conformidad",
-        `Reporte '${formData.title}' creado para el Lote ${formData.lotNumber} (Severidad: ${formData.severity})`
+        "Inspección Registrada",
+        `Lote '${newInspection.batchNumber}' de ${newInspection.productName} inspeccionado: ${autoStatus.toUpperCase()} (${defectRate}% Defectos)`
       );
 
-      setShowModal(false);
-      setFormData({ title: "", lotNumber: "", severity: "media", description: "", actionRequired: "" });
+      setShowNewModal(false);
+      setNewInspection({
+        batchNumber: "",
+        productName: "",
+        line: "Línea 1 - Ensamble",
+        sampleSize: 50,
+        defectsCount: 0,
+        severity: "menor",
+        scrapCost: "",
+        notes: "",
+        status: "aprobado"
+      });
     } catch (err) {
-      console.error("Error al registrar incidencia de calidad:", err);
-      alert("Error al guardar en la base de datos.");
+      console.error("Error al registrar inspección de calidad:", err);
     } finally {
       setProcessing(false);
     }
   };
 
-  // Cambiar estado de la incidencia (Ej. Marcar como Resuelto)
-  const handleUpdateStatus = async (issueId, issueTitle, newStatus) => {
+  // Actualizar Plan de Acción CAPA / Liberación
+  const handleSaveCAPA = async (e) => {
+    e.preventDefault();
+    if (!selectedItem) return;
+
+    setProcessing(true);
     try {
-      const docRef = doc(db, "quality_issues", issueId);
+      const docRef = doc(db, "quality_inspections", selectedItem.id);
       await updateDoc(docRef, {
-        status: newStatus,
-        resolvedBy: newStatus === "resuelto" ? user?.email : null,
-        resolvedAt: newStatus === "resuelto" ? serverTimestamp() : null,
+        capaPlan: capaAction,
+        capaUpdatedBy: user?.email || "Supervisor Calidad",
+        capaUpdatedAt: serverTimestamp(),
+        status: "aprobado" // Al resolver el CAPA liberamos el lote
       });
 
       await logActivity(
         user?.email,
         "Calidad",
-        `Cambio Estado Incidencia`,
-        `Reporte '${issueTitle}' actualizado a estado '${newStatus}'`
+        "Resolución CAPA",
+        `Plan de Acción Correctiva registrado para Lote '${selectedItem.batchNumber}'. Lote Liberado.`
       );
+
+      setSelectedItem(null);
+      setCapaAction("");
     } catch (err) {
-      console.error("Error al actualizar estado:", err);
+      console.error("Error al guardar CAPA:", err);
+    } finally {
+      setProcessing(false);
     }
   };
 
-  // Filtrado de Datos
-  const filteredIssues = issues.filter((item) => {
-    const matchesSearch = 
-      (item.title || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (item.lotNumber || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (item.reportedBy || "").toLowerCase().includes(searchTerm.toLowerCase());
+  // Filtrado de lista
+  const filteredInspections = useMemo(() => {
+    return inspections.filter((item) => {
+      const matchesStatus = filterResult === "todos" || item.status === filterResult;
+      const matchesSeverity = filterSeverity === "todos" || item.severity === filterSeverity;
+      const matchesSearch = 
+        (item.batchNumber || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (item.productName || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (item.line || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (item.inspector || "").toLowerCase().includes(searchTerm.toLowerCase());
+      const matchesDate = inDateRange(item.createdAt, fromDate, toDate);
+
+      return matchesStatus && matchesSeverity && matchesSearch && matchesDate;
+    });
+  }, [inspections, filterResult, filterSeverity, searchTerm, fromDate, toDate]);
+
+  // KPIs de Calidad
+  const metrics = useMemo(() => {
+    const total = inspections.length;
+    const approved = inspections.filter((i) => i.status === "aprobado").length;
+    const rejected = inspections.filter((i) => i.status === "rechazado").length;
+    const pendingReview = inspections.filter((i) => i.status === "en_revision").length;
     
-    const matchesSeverity = filterSeverity === "todos" || item.severity === filterSeverity;
-    const matchesStatus = filterStatus === "todos" || item.status === filterStatus;
-    const matchesDate = inDateRange(item.createdAt, fromDate, toDate);
+    const yieldRate = total > 0 ? ((approved / total) * 100).toFixed(1) : "100.0";
+    const totalScrap = inspections.reduce((sum, i) => sum + (Number(i.scrapCost) || 0), 0);
 
-    return matchesSearch && matchesSeverity && matchesStatus && matchesDate;
-  });
-
-  // Métricas rápidas
-  const totalOpen = issues.filter((i) => i.status !== "resuelto").length;
-  const criticalCount = issues.filter((i) => i.status !== "resuelto" && (i.severity === "alta" || i.severity === "critica")).length;
+    return { total, approved, rejected, pendingReview, yieldRate, totalScrap };
+  }, [inspections]);
 
   if (loading) {
-    return <CenteredMessage text="Cargando modulo de aseguramiento de calidad..." />;
+    return <CenteredMessage text="Cargando módulo de Aseguramiento de Calidad Enterprise..." />;
   }
 
   return (
-    <div style={{ maxWidth: 1200, margin: "0 auto", paddingBottom: 40 }}>
-      {/* Encabezado */}
+    <div style={{ maxWidth: 1300, margin: "0 auto", paddingBottom: 50 }}>
+      
+      {/* HEADER PRINCIPAL */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24, flexWrap: "wrap", gap: 16 }}>
         <div>
-          <h1 style={{ fontSize: 24, fontWeight: 800, margin: "0 0 4px", color: "#fff", letterSpacing: "-0.5px" }}>
-            Control de Calidad & CAPA
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+            <span style={{ background: "rgba(52,199,89,0.15)", color: "#34C759", fontSize: 10, fontWeight: 900, padding: "2px 8px", borderRadius: 4 }}>
+              NORMATIVA ISO 9001:2015 & AQL LEVEL II
+            </span>
+          </div>
+          <h1 style={{ fontSize: 26, fontWeight: 900, margin: 0, color: "#fff", letterSpacing: "-0.5px" }}>
+            Control & Aseguramiento de Calidad
           </h1>
-          <p style={{ margin: 0, fontSize: 13, color: "rgba(255,255,255,0.5)" }}>
-            Registro de No Conformidades, trazabilidad de lotes y acciones correctivas.
+          <p style={{ margin: "4px 0 0", fontSize: 13, color: "rgba(255,255,255,0.6)" }}>
+            Inspección de lotes en línea, gestión de mermas y Acciones Correctivas/Preventivas (CAPA).
           </p>
         </div>
 
         <div style={{ display: "flex", gap: 10 }}>
-          <button onClick={() => exportToCsv("reportes_calidad", filteredIssues)} style={ghostButtonStyle}>
-            <Download size={16} /> Exportar CSV
+          <button onClick={() => exportToCsv("reporte_calidad_iso", filteredInspections)} style={ghostButtonStyle}>
+            <Download size={16} /> Exportar ISO Report
           </button>
-          <button onClick={() => setShowModal(true)} style={primaryButtonStyle}>
-            <Plus size={16} /> Nueva No Conformidad
+          <button onClick={() => setShowNewModal(true)} style={primaryButtonStyle}>
+            <Plus size={16} /> Nueva Inspección
           </button>
         </div>
       </div>
 
-      {/* Tarjetas de Métricas Rápidas */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 16, marginBottom: 24 }}>
-        <div style={{ background: "rgba(255, 59, 48, 0.1)", border: "1px solid rgba(255, 59, 48, 0.2)", borderRadius: 14, padding: "16px 20px" }}>
+      {/* STRIP DE KPIS ENTERPRISE */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 16, marginBottom: 24 }}>
+        <div style={{ background: "rgba(52, 199, 89, 0.08)", border: "1px solid rgba(52, 199, 89, 0.2)", borderRadius: 16, padding: "18px 20px" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <span style={{ fontSize: 12, fontWeight: 700, color: "#FF3B30" }}>INCIDENCIAS ABIERTAS</span>
-            <AlertOctagon size={18} color="#FF3B30" />
+            <span style={{ fontSize: 11, fontWeight: 800, color: "#34C759" }}>YIELD DE CALIDAD</span>
+            <TrendingUp size={18} color="#34C759" />
           </div>
-          <div style={{ fontSize: 28, fontWeight: 800, color: "#fff", marginTop: 6 }}>{totalOpen}</div>
+          <div style={{ fontSize: 28, fontWeight: 900, color: "#fff", marginTop: 6 }}>{metrics.yieldRate}%</div>
+          <div style={{ fontSize: 11, color: "rgba(255,255,255,0.5)", marginTop: 4 }}>Lotes Conformidad ISO</div>
         </div>
 
-        <div style={{ background: "rgba(255, 149, 0, 0.1)", border: "1px solid rgba(255, 149, 0, 0.2)", borderRadius: 14, padding: "16px 20px" }}>
+        <div style={{ background: "rgba(255, 59, 48, 0.08)", border: "1px solid rgba(255, 59, 48, 0.2)", borderRadius: 16, padding: "18px 20px" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <span style={{ fontSize: 12, fontWeight: 700, color: "#FF9500" }}>ALTA / CRÍTICA</span>
-            <AlertTriangle size={18} color="#FF9500" />
+            <span style={{ fontSize: 11, fontWeight: 800, color: "#FF3B30" }}>NO CONFORMIDADES</span>
+            <AlertTriangle size={18} color="#FF3B30" />
           </div>
-          <div style={{ fontSize: 28, fontWeight: 800, color: "#fff", marginTop: 6 }}>{criticalCount}</div>
+          <div style={{ fontSize: 28, fontWeight: 900, color: "#fff", marginTop: 6 }}>{metrics.rejected}</div>
+          <div style={{ fontSize: 11, color: "rgba(255,255,255,0.5)", marginTop: 4 }}>Lotes Rechazados / Bloqueados</div>
+        </div>
+
+        <div style={{ background: "rgba(255, 149, 0, 0.08)", border: "1px solid rgba(255, 149, 0, 0.2)", borderRadius: 16, padding: "18px 20px" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <span style={{ fontSize: 11, fontWeight: 800, color: "#FF9500" }}>COSTO DE SCRAP / MERMA</span>
+            <DollarSign size={18} color="#FF9500" />
+          </div>
+          <div style={{ fontSize: 28, fontWeight: 900, color: "#fff", marginTop: 6 }}>${metrics.totalScrap.toLocaleString()}</div>
+          <div style={{ fontSize: 11, color: "rgba(255,255,255,0.5)", marginTop: 4 }}>Impacto Financiero Acumulado</div>
+        </div>
+
+        <div style={{ background: "rgba(0, 122, 255, 0.08)", border: "1px solid rgba(0, 122, 255, 0.2)", borderRadius: 16, padding: "18px 20px" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <span style={{ fontSize: 11, fontWeight: 800, color: "#007AFF" }}>REVISIONES PENDIENTES</span>
+            <ClipboardCheck size={18} color="#007AFF" />
+          </div>
+          <div style={{ fontSize: 28, fontWeight: 900, color: "#fff", marginTop: 6 }}>{metrics.pendingReview}</div>
+          <div style={{ fontSize: 11, color: "rgba(255,255,255,0.5)", marginTop: 4 }}>En Espera de Dictamen CAPA</div>
         </div>
       </div>
 
-      {/* Toolbar de Filtros */}
+      {/* FILTROS AVANZADOS */}
       <div 
         style={{ 
           background: "rgba(255,255,255,0.02)", 
           border: "1px solid rgba(255,255,255,0.06)", 
-          borderRadius: 14, 
+          borderRadius: 16, 
           padding: 16, 
           marginBottom: 20,
           display: "flex",
@@ -200,186 +275,297 @@ export default function Calidad({ user }) {
         }}
       >
         <div style={{ position: "relative", flex: 1, minWidth: 260 }}>
-          <Search size={16} color="rgba(255,255,255,0.4)" style={{ position: "absolute", left: 12, top: 11 }} />
+          <Search size={16} color="rgba(255,255,255,0.4)" style={{ position: "absolute", left: 12, top: 12 }} />
           <input 
             type="text" 
-            placeholder="Buscar por título, lote o inspector..." 
+            placeholder="Buscar por lote, producto, línea o inspector..." 
             value={searchTerm} 
             onChange={(e) => setSearchTerm(e.target.value)} 
-            style={{ ...inputStyle, paddingLeft: 36 }} 
+            style={{ ...inputStyle, paddingLeft: 38 }} 
           />
         </div>
 
         <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-          <select value={filterSeverity} onChange={(e) => setFilterSeverity(e.target.value)} style={{ ...inputStyle, width: "auto" }}>
-            <option value="todos" style={{ background: "#12141d" }}>Todas las Severidades</option>
-            <option value="baja" style={{ background: "#12141d" }}>Baja</option>
-            <option value="media" style={{ background: "#12141d" }}>Media</option>
-            <option value="alta" style={{ background: "#12141d" }}>Alta</option>
-            <option value="critica" style={{ background: "#12141d" }}>Crítica</option>
+          <select value={filterResult} onChange={(e) => setFilterResult(e.target.value)} style={{ ...inputStyle, width: "auto" }}>
+            <option value="todos" style={{ background: "#12141d" }}>Todos los Dictámenes</option>
+            <option value="aprobado" style={{ background: "#12141d" }}>Conforme (Aprobado)</option>
+            <option value="rechazado" style={{ background: "#12141d" }}>No Conforme (Rechazado)</option>
+            <option value="en_revision" style={{ background: "#12141d" }}>En Revisión CAPA</option>
           </select>
 
-          <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)} style={{ ...inputStyle, width: "auto" }}>
-            <option value="todos" style={{ background: "#12141d" }}>Todos los Estados</option>
-            <option value="abierto" style={{ background: "#12141d" }}>Abierto</option>
-            <option value="en_investigacion" style={{ background: "#12141d" }}>En Investigación</option>
-            <option value="resuelto" style={{ background: "#12141d" }}>Resuelto</option>
+          <select value={filterSeverity} onChange={(e) => setFilterSeverity(e.target.value)} style={{ ...inputStyle, width: "auto" }}>
+            <option value="todos" style={{ background: "#12141d" }}>Todas las Gravedades</option>
+            <option value="menor" style={{ background: "#12141d" }}>Menor / Cosmética</option>
+            <option value="mayor" style={{ background: "#12141d" }}>Mayor / Funcional</option>
+            <option value="critica" style={{ background: "#12141d" }}>Crítica / Seguridad</option>
           </select>
 
           <DateRangeFilter from={fromDate} to={toDate} onFromChange={setFromDate} onToChange={setToDate} />
         </div>
       </div>
 
-      {/* Grid de Reportes de Calidad */}
-      {filteredIssues.length === 0 ? (
+      {/* TABLA ENTERPRISE DE INSPECCIONES */}
+      {filteredInspections.length === 0 ? (
         <EmptyState 
           Icon={ShieldCheck} 
-          title="Sin Reportes de Calidad" 
-          message="No hay incidencias de calidad registradas que coincidan con los filtros." 
-          onAdd={() => setShowModal(true)} 
-          addLabel="Crear Reporte" 
+          title="Sin Registros de Calidad" 
+          message="No se encontraron inspecciones registradas bajo los parámetros de búsqueda especificados." 
         />
       ) : (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(350px, 1fr))", gap: 16 }}>
-          {filteredIssues.map((item) => {
-            const sevConfig = SEVERITY_COLORS[item.severity] || SEVERITY_COLORS["media"];
-            const isResolved = item.status === "resuelto";
+        <div style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 16, overflow: "hidden" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", textAlign: "left", fontSize: 13, color: "#fff" }}>
+            <thead>
+              <tr style={{ background: "rgba(255,255,255,0.04)", borderBottom: "1px solid rgba(255,255,255,0.08)", fontSize: 11, textTransform: "uppercase", color: "rgba(255,255,255,0.5)" }}>
+                <th style={{ padding: "14px 16px" }}>Lote & Producto</th>
+                <th style={{ padding: "14px 16px" }}>Línea de Proceso</th>
+                <th style={{ padding: "14px 16px" }}>Muestra / Defectos</th>
+                <th style={{ padding: "14px 16px" }}>% Tasa Defecto</th>
+                <th style={{ padding: "14px 16px" }}>Gravedad</th>
+                <th style={{ padding: "14px 16px" }}>Scrap ($)</th>
+                <th style={{ padding: "14px 16px" }}>Dictamen</th>
+                <th style={{ padding: "14px 16px", textAlign: "right" }}>Acción</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredInspections.map((item) => {
+                const isRejected = item.status === "rechazado";
+                const isApproved = item.status === "aprobado";
 
-            return (
-              <div 
-                key={item.id} 
-                style={{ 
-                  background: "rgba(255,255,255,0.02)", 
-                  border: "1px solid rgba(255,255,255,0.06)", 
-                  borderRadius: 16, 
-                  padding: 20,
-                  display: "flex",
-                  flexDirection: "column",
-                  justifyContent: "space-between"
-                }}
-              >
-                <div>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-                    <span style={{ fontSize: 11, fontWeight: 800, padding: "3px 8px", borderRadius: 6, background: sevConfig.bg, color: sevConfig.color }}>
-                      SEVERIDAD {sevConfig.label.toUpperCase()}
-                    </span>
-                    <span style={{ fontSize: 11, fontWeight: 700, color: isResolved ? "#34C759" : "#FF9500" }}>
-                      ● {isResolved ? "RESUELTO" : "EN REVISIÓN"}
-                    </span>
-                  </div>
-
-                  <h3 style={{ fontSize: 16, fontWeight: 700, margin: "0 0 6px", color: "#fff" }}>{item.title}</h3>
-                  
-                  <div style={{ fontSize: 12, color: "#007AFF", fontWeight: 700, marginBottom: 12 }}>
-                    Lote / Serie: <span style={{ color: "#fff" }}>{item.lotNumber}</span>
-                  </div>
-
-                  <p style={{ fontSize: 12, color: "rgba(255,255,255,0.6)", margin: "0 0 14px", lineHeight: "1.4" }}>
-                    {item.description || "Sin descripción de la desviación."}
-                  </p>
-
-                  {item.actionRequired && (
-                    <div style={{ background: "rgba(0,0,0,0.25)", borderLeft: "3px solid #007AFF", padding: "8px 12px", borderRadius: "0 6px 6px 0", marginBottom: 14 }}>
-                      <div style={{ fontSize: 10, fontWeight: 700, color: "#007AFF", marginBottom: 2 }}>ACCIÓN REQUERIDA / CAPA:</div>
-                      <div style={{ fontSize: 11, color: "rgba(255,255,255,0.8)" }}>{item.actionRequired}</div>
-                    </div>
-                  )}
-                </div>
-
-                <div style={{ borderTop: "1px solid rgba(255,255,255,0.06)", paddingTop: 12, marginTop: 10, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <div style={{ fontSize: 10, color: "rgba(255,255,255,0.4)" }}>
-                    Reportado por: {item.reportedBy?.split("@")[0]}
-                  </div>
-
-                  {!isResolved ? (
-                    <button 
-                      onClick={() => handleUpdateStatus(item.id, item.title, "resuelto")} 
-                      style={{ ...ghostButtonStyle, padding: "5px 10px", fontSize: 11, color: "#34C759", borderColor: "rgba(52, 199, 89, 0.3)" }}
-                    >
-                      <CheckCircle2 size={12} /> Resolver
-                    </button>
-                  ) : (
-                    <span style={{ fontSize: 10, color: "#34C759", fontWeight: 700 }}>Cerrado</span>
-                  )}
-                </div>
-              </div>
-            );
-          })}
+                return (
+                  <tr key={item.id} style={{ borderBottom: "1px solid rgba(255,255,255,0.04)" }}>
+                    <td style={{ padding: "14px 16px" }}>
+                      <div style={{ fontWeight: 800, color: "#fff" }}>{item.batchNumber}</div>
+                      <div style={{ fontSize: 11, color: "rgba(255,255,255,0.5)" }}>{item.productName}</div>
+                    </td>
+                    <td style={{ padding: "14px 16px", color: "rgba(255,255,255,0.8)" }}>
+                      {item.line}
+                    </td>
+                    <td style={{ padding: "14px 16px" }}>
+                      <span>{item.sampleSize} piezas</span>
+                      <span style={{ fontSize: 11, color: item.defectsCount > 0 ? "#FF3B30" : "#34C759", marginLeft: 6 }}>
+                        ({item.defectsCount} fallos)
+                      </span>
+                    </td>
+                    <td style={{ padding: "14px 16px", fontWeight: 700, color: item.defectRate > 2 ? "#FF3B30" : "#34C759" }}>
+                      {item.defectRate || 0}%
+                    </td>
+                    <td style={{ padding: "14px 16px" }}>
+                      <span 
+                        style={{ 
+                          fontSize: 10, 
+                          fontWeight: 800, 
+                          textTransform: "uppercase",
+                          padding: "2px 8px", 
+                          borderRadius: 4,
+                          background: item.severity === "critica" ? "rgba(255,59,48,0.15)" : item.severity === "mayor" ? "rgba(255,149,0,0.15)" : "rgba(255,255,255,0.08)",
+                          color: item.severity === "critica" ? "#FF3B30" : item.severity === "mayor" ? "#FF9500" : "rgba(255,255,255,0.7)"
+                        }}
+                      >
+                        {item.severity}
+                      </span>
+                    </td>
+                    <td style={{ padding: "14px 16px", fontWeight: 700, color: item.scrapCost > 0 ? "#FF9500" : "rgba(255,255,255,0.4)" }}>
+                      ${Number(item.scrapCost || 0).toLocaleString()}
+                    </td>
+                    <td style={{ padding: "14px 16px" }}>
+                      <StatusBadge statusKey={item.status} />
+                    </td>
+                    <td style={{ padding: "14px 16px", textAlign: "right" }}>
+                      <button 
+                        onClick={() => setSelectedItem(item)} 
+                        style={{ ...ghostButtonStyle, padding: "6px 10px", fontSize: 12 }}
+                      >
+                        <Eye size={14} /> Detalle
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
       )}
 
-      {/* Modal para Crear No Conformidad */}
-      {showModal && (
-        <ModalShell title="Registrar No Conformidad (CAPA)" onClose={() => setShowModal(false)}>
-          <form onSubmit={handleCreateIssue} style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-            <Field label="Título de la Desviación" requiredHelp="Ej. Deformación de empaque, impurezas">
-              <input 
-                type="text" 
-                placeholder="Descripción corta de la falla..." 
-                value={formData.title} 
-                onChange={(e) => setFormData({ ...formData, title: e.target.value })} 
-                style={inputStyle} 
-                required 
-              />
-            </Field>
-
+      {/* MODAL REGISTRO DE INSPECCIÓN */}
+      {showNewModal && (
+        <ModalShell title="Registrar Nueva Inspección de Calidad" onClose={() => setShowNewModal(false)}>
+          <form onSubmit={handleCreateInspection} style={{ display: "flex", flexDirection: "column", gap: 16 }}>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-              <Field label="Número de Lote / Orden" required>
+              <Field label="Número de Lote / Batch">
                 <input 
                   type="text" 
-                  placeholder="LOT-2026-99" 
-                  value={formData.lotNumber} 
-                  onChange={(e) => setFormData({ ...formData, lotNumber: e.target.value })} 
+                  placeholder="Ej. LOT-2026-X89" 
+                  value={newInspection.batchNumber} 
+                  onChange={(e) => setNewInspection({ ...newInspection, batchNumber: e.target.value })} 
                   style={inputStyle} 
                   required 
                 />
               </Field>
 
-              <Field label="Nivel de Severidad">
+              <Field label="Nombre del Producto">
+                <input 
+                  type="text" 
+                  placeholder="Ej. Componente Plástico ABS" 
+                  value={newInspection.productName} 
+                  onChange={(e) => setNewInspection({ ...newInspection, productName: e.target.value })} 
+                  style={inputStyle} 
+                  required 
+                />
+              </Field>
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+              <Field label="Línea de Producción">
                 <select 
-                  value={formData.severity} 
-                  onChange={(e) => setFormData({ ...formData, severity: e.target.value })} 
+                  value={newInspection.line} 
+                  onChange={(e) => setNewInspection({ ...newInspection, line: e.target.value })} 
                   style={inputStyle}
                 >
-                  <option value="baja" style={{ background: "#12141d" }}>Baja</option>
-                  <option value="media" style={{ background: "#12141d" }}>Media</option>
-                  <option value="alta" style={{ background: "#12141d" }}>Alta</option>
+                  <option value="Línea 1 - Ensamble" style={{ background: "#12141d" }}>Línea 1 - Ensamble</option>
+                  <option value="Línea 2 - Inyección" style={{ background: "#12141d" }}>Línea 2 - Inyección</option>
+                  <option value="Línea 3 - Empaque" style={{ background: "#12141d" }}>Línea 3 - Empaque</option>
+                  <option value="Línea 4 - Mecanizado" style={{ background: "#12141d" }}>Línea 4 - Mecanizado</option>
+                </select>
+              </Field>
+
+              <Field label="Dictamen Inicial">
+                <select 
+                  value={newInspection.status} 
+                  onChange={(e) => setNewInspection({ ...newInspection, status: e.target.value })} 
+                  style={inputStyle}
+                >
+                  <option value="aprobado" style={{ background: "#12141d" }}>Conforme / Aprobado</option>
+                  <option value="rechazado" style={{ background: "#12141d" }}>No Conforme / Rechazado</option>
+                  <option value="en_revision" style={{ background: "#12141d" }}>En Retención CAPA</option>
+                </select>
+              </Field>
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
+              <Field label="Tamaño Muestra">
+                <input 
+                  type="number" 
+                  value={newInspection.sampleSize} 
+                  onChange={(e) => setNewInspection({ ...newInspection, sampleSize: e.target.value })} 
+                  style={inputStyle} 
+                  required 
+                />
+              </Field>
+
+              <Field label="Piezas Defectuosas">
+                <input 
+                  type="number" 
+                  value={newInspection.defectsCount} 
+                  onChange={(e) => setNewInspection({ ...newInspection, defectsCount: e.target.value })} 
+                  style={inputStyle} 
+                  required 
+                />
+              </Field>
+
+              <Field label="Gravedad del Defecto">
+                <select 
+                  value={newInspection.severity} 
+                  onChange={(e) => setNewInspection({ ...newInspection, severity: e.target.value })} 
+                  style={inputStyle}
+                >
+                  <option value="menor" style={{ background: "#12141d" }}>Menor</option>
+                  <option value="mayor" style={{ background: "#12141d" }}>Mayor</option>
                   <option value="critica" style={{ background: "#12141d" }}>Crítica</option>
                 </select>
               </Field>
             </div>
 
-            <Field label="Detalles de la Desviación">
-              <textarea 
-                rows={3} 
-                placeholder="Especifique el defecto observado durante la inspección..." 
-                value={formData.description} 
-                onChange={(e) => setFormData({ ...formData, description: e.target.value })} 
-                style={{ ...inputStyle, resize: "vertical" }} 
-              />
-            </Field>
-
-            <Field label="Acción Correctiva Sugerida (CAPA)">
+            <Field label="Costo Estimado de Merma / Scrap (USD)">
               <input 
-                type="text" 
-                placeholder="Ej. Detención de línea, cuarentena de lote..." 
-                value={formData.actionRequired} 
-                onChange={(e) => setFormData({ ...formData, actionRequired: e.target.value })} 
+                type="number" 
+                placeholder="0.00" 
+                value={newInspection.scrapCost} 
+                onChange={(e) => setNewInspection({ ...newInspection, scrapCost: e.target.value })} 
                 style={inputStyle} 
               />
             </Field>
 
+            <Field label="Observaciones Técnicas de Inspección">
+              <textarea 
+                rows={3} 
+                placeholder="Detalles sobre fisuras, desviaciones dimensionales, tolerancias..." 
+                value={newInspection.notes} 
+                onChange={(e) => setNewInspection({ ...newInspection, notes: e.target.value })} 
+                style={{ ...inputStyle, resize: "vertical" }} 
+              />
+            </Field>
+
             <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 10 }}>
-              <button type="button" onClick={() => setShowModal(false)} style={secondaryButtonStyle}>
+              <button type="button" onClick={() => setShowNewModal(false)} style={secondaryButtonStyle}>
                 Cancelar
               </button>
               <button type="submit" disabled={processing} style={primaryButtonStyle}>
-                {processing ? "Guardando..." : "Registrar No Conformidad"}
+                {processing ? "Guardando..." : "Guardar Inspección"}
               </button>
             </div>
           </form>
         </ModalShell>
       )}
+
+      {/* MODAL DETALLE & PLAN CAPA */}
+      {selectedItem && (
+        <ModalShell title={`Auditoría de Lote: ${selectedItem.batchNumber}`} onClose={() => setSelectedItem(null)}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+            <div style={{ background: "rgba(255,255,255,0.03)", padding: 16, borderRadius: 12, border: "1px solid rgba(255,255,255,0.08)" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 10 }}>
+                <div>
+                  <div style={{ fontSize: 16, fontWeight: 800, color: "#fff" }}>{selectedItem.productName}</div>
+                  <div style={{ fontSize: 12, color: "rgba(255,255,255,0.6)" }}>Inspector: {selectedItem.inspector}</div>
+                </div>
+                <StatusBadge statusKey={selectedItem.status} />
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, fontSize: 12, color: "rgba(255,255,255,0.8)", borderTop: "1px solid rgba(255,255,255,0.06)", paddingTop: 10, marginTop: 10 }}>
+                <div>Muestra: <strong>{selectedItem.sampleSize} pzs</strong></div>
+                <div>Defectos: <strong style={{ color: "#FF3B30" }}>{selectedItem.defectsCount} pzs</strong></div>
+                <div>Tasa Defecto: <strong>{selectedItem.defectRate}%</strong></div>
+              </div>
+            </div>
+
+            {selectedItem.notes && (
+              <Field label="Notas del Inspector">
+                <div style={{ background: "rgba(255,255,255,0.02)", padding: 12, borderRadius: 8, fontSize: 13, color: "rgba(255,255,255,0.8)" }}>
+                  {selectedItem.notes}
+                </div>
+              </Field>
+            )}
+
+            {/* SECCIÓN CAPA / PLAN ACCIÓN CORRECTIVA */}
+            <form onSubmit={handleSaveCAPA} style={{ display: "flex", flexDirection: "column", gap: 12, borderTop: "1px solid rgba(255,255,255,0.08)", paddingTop: 16 }}>
+              <Field label="Plan de Acción Correctiva (CAPA)" requiredHelp="Requerido para liberar lotes en retención o corregir fallas">
+                <textarea 
+                  rows={3} 
+                  placeholder="Describa la acción correctiva ejecutada en la línea..." 
+                  value={capaAction || selectedItem.capaPlan || ""} 
+                  onChange={(e) => setCapaAction(e.target.value)} 
+                  style={{ ...inputStyle, resize: "vertical" }} 
+                />
+              </Field>
+
+              {selectedItem.capaUpdatedBy && (
+                <div style={{ fontSize: 11, color: "rgba(255,255,255,0.4)" }}>
+                  Última actualización CAPA por: {selectedItem.capaUpdatedBy}
+                </div>
+              )}
+
+              <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 10 }}>
+                <button type="button" onClick={() => setSelectedItem(null)} style={secondaryButtonStyle}>
+                  Cerrar
+                </button>
+                <button type="submit" disabled={processing || !capaAction} style={primaryButtonStyle}>
+                  {processing ? "Guardando..." : "Resolver CAPA & Liberar Lote"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </ModalShell>
+      )}
+
     </div>
   );
 }
