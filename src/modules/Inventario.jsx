@@ -1,262 +1,335 @@
-import React, { useState, useEffect } from "react";
-import { collection, onSnapshot, addDoc, updateDoc, deleteDoc, doc, serverTimestamp } from "firebase/firestore";
+import React, { useState, useEffect, useMemo } from "react";
+import { collection, onSnapshot, addDoc, updateDoc, doc, serverTimestamp, query, orderBy, limit } from "firebase/firestore";
 import { db } from "../firebase.js";
-import { Boxes, Plus, Edit, Trash2, Download, Search, AlertTriangle, FileText } from "lucide-react";
-import {
-  COLORS,
-  inputStyle,
-  selectStyle,
-  primaryButtonStyle,
-  ghostButtonStyle,
-  Field,
-  ModalShell,
-  ConfirmDialog,
-  CenteredMessage,
-  EmptyState,
-  logActivity,
-  exportToCsv,
-  exportToPdf,
-  useToast
+import { 
+  Boxes, 
+  ArrowUpRight, 
+  ArrowDownLeft, 
+  RefreshCw, 
+  Plus, 
+  Search, 
+  Download, 
+  MapPin, 
+  Package, 
+  Tag, 
+  Clock 
+} from "lucide-react";
+import { 
+  inputStyle, 
+  primaryButtonStyle, 
+  ghostButtonStyle, 
+  exportToCsv, 
+  logActivity, 
+  DateRangeFilter, 
+  inDateRange, 
+  CenteredMessage, 
+  Field, 
+  ModalShell, 
+  EmptyState 
 } from "../shared.jsx";
 
+const MOVEMENT_TYPES = [
+  { value: "entrada", label: "Entrada (Recepción / Compra)", color: "#34C759", icon: ArrowDownLeft, bg: "rgba(52, 199, 89, 0.15)" },
+  { value: "salida", label: "Salida (Consumo / Despacho)", color: "#FF3B30", icon: ArrowUpRight, bg: "rgba(255, 59, 48, 0.15)" },
+  { value: "ajuste", label: "Ajuste de Inventario (Auditoría)", color: "#007AFF", icon: RefreshCw, bg: "rgba(0, 122, 255, 0.15)" },
+];
+
+const emptyForm = {
+  materialId: "",
+  type: "entrada",
+  quantity: "",
+  lot: "",
+  location: "",
+  notes: "",
+};
+
 export default function Inventario({ user }) {
-  const [items, setItems] = useState([]);
+  const [materials, setMaterials] = useState([]);
+  const [movements, setMovements] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [searchTerm, setSearchTerm] = useState("");
   const [modalOpen, setModalOpen] = useState(false);
-  const [editingItem, setEditingItem] = useState(null);
-  const [deleteId, setDeleteId] = useState(null);
-
-  const { addToast } = useToast();
-
-  const [form, setForm] = useState({
-    name: "",
-    sku: "",
-    category: "Materia Prima",
-    stock: "",
-    minStock: "",
-    unit: "Kg",
-  });
+  const [filterType, setFilterType] = useState("todos");
+  const [search, setSearch] = useState("");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
 
   useEffect(() => {
-    const unsub = onSnapshot(
-      collection(db, "materials"),
-      (snap) => {
-        const list = snap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-        setItems(list);
-        setLoading(false);
-      },
-      (err) => console.error("Error al cargar inventario:", err)
-    );
-    return unsub;
+    // 1. Escuchar Materiales para el selector
+    const unsubMaterials = onSnapshot(collection(db, "inventory_materials"), (snap) => {
+      setMaterials(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+    });
+
+    // 2. Escuchar Movimientos de Inventario
+    const qMovements = query(collection(db, "inventory_movements"), orderBy("timestamp", "desc"), limit(150));
+    const unsubMovements = onSnapshot(qMovements, (snap) => {
+      setMovements(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+      setLoading(false);
+    });
+
+    return () => {
+      unsubMaterials();
+      unsubMovements();
+    };
   }, []);
 
-  const openCreateModal = () => {
-    setEditingItem(null);
-    setForm({ name: "", sku: "", category: "Materia Prima", stock: "", minStock: "", unit: "Kg" });
-    setModalOpen(true);
-  };
-
-  const openEditModal = (item) => {
-    setEditingItem(item);
-    setForm({
-      name: item.name || "",
-      sku: item.sku || "",
-      category: item.category || "Materia Prima",
-      stock: item.stock || "",
-      minStock: item.minStock || "",
-      unit: item.unit || "Kg",
+  const filtered = useMemo(() => {
+    return movements.filter((m) => {
+      if (filterType !== "todos" && m.type !== filterType) return false;
+      if (!inDateRange(m.timestamp, dateFrom, dateTo)) return false;
+      
+      const term = search.toLowerCase();
+      return `${m.materialName || ""} ${m.lot || ""} ${m.location || ""} ${m.notes || ""}`.toLowerCase().includes(term);
     });
-    setModalOpen(true);
-  };
+  }, [movements, filterType, search, dateFrom, dateTo]);
+
+  const stats = useMemo(() => {
+    const entradas = movements.filter((m) => m.type === "entrada").length;
+    const salidas = movements.filter((m) => m.type === "salida").length;
+    const ajustes = movements.filter((m) => m.type === "ajuste").length;
+    return { total: movements.length, entradas, salidas, ajustes };
+  }, [movements]);
+
+  return (
+    <div style={{ maxWidth: 1200, margin: "0 auto", paddingBottom: 40 }}>
+      {/* Header */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24, flexWrap: "wrap", gap: 16 }}>
+        <div>
+          <span style={{ background: "rgba(0, 122, 255, 0.15)", color: "#007AFF", padding: "4px 8px", borderRadius: 6, fontSize: 12, fontWeight: 700, letterSpacing: 1 }}>
+            WAREHOUSE OPERATIONS
+          </span>
+          <h1 style={{ fontSize: 28, fontWeight: 800, margin: "6px 0 0", letterSpacing: "-0.5px" }}>Gestión de Inventario & Movimientos</h1>
+        </div>
+        <button onClick={() => setModalOpen(true)} style={{ ...primaryButtonStyle, borderRadius: 10, padding: "10px 18px", boxShadow: "0 4px 14px rgba(0,0,0,0.2)" }}>
+          <Plus size={18} /> Registrar Movimiento
+        </button>
+      </div>
+
+      {/* KPI Cards */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 14, marginBottom: 28 }}>
+        <KpiCard label="Movimientos Registrados" value={stats.total} icon={Boxes} accentColor="#007AFF" />
+        <KpiCard label="Entradas de Stock" value={stats.entradas} icon={ArrowDownLeft} accentColor="#34C759" />
+        <KpiCard label="Salidas / Despachos" value={stats.salidas} icon={ArrowUpRight} accentColor="#FF3B30" />
+        <KpiCard label="Ajustes de Auditoría" value={stats.ajustes} icon={RefreshCw} accentColor="#FF9500" />
+      </div>
+
+      {/* Toolbar y Filtros */}
+      <div style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 14, padding: 12, marginBottom: 24, display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
+        <div style={{ position: "relative", flex: "1 1 240px" }}>
+          <Search size={16} color="rgba(255,255,255,0.4)" style={{ position: "absolute", left: 12, top: 12 }} />
+          <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar por material, lote, ubicación..." style={{ ...inputStyle, paddingLeft: 36, borderRadius: 8, background: "rgba(0,0,0,0.2)" }} />
+        </div>
+
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          <Chip active={filterType === "todos"} onClick={() => setFilterType("todos")}>Todos</Chip>
+          <Chip active={filterType === "entrada"} onClick={() => setFilterType("entrada")}>Entradas</Chip>
+          <Chip active={filterType === "salida"} onClick={() => setFilterType("salida")}>Salidas</Chip>
+          <Chip active={filterType === "ajuste"} onClick={() => setFilterType("ajuste")}>Ajustes</Chip>
+        </div>
+
+        <DateRangeFilter from={dateFrom} to={dateTo} onFromChange={setDateFrom} onToChange={setDateTo} />
+        <button onClick={() => exportToCsv("movimientos-inventario", filtered)} style={{ ...ghostButtonStyle, marginLeft: "auto", borderRadius: 8 }}>
+          <Download size={16} /> Exportar
+        </button>
+      </div>
+
+      {/* Tabla / Lista de Movimientos */}
+      {loading ? (
+        <CenteredMessage text="Cargando kardex de inventario..." />
+      ) : filtered.length === 0 ? (
+        <EmptyState Icon={Boxes} title="Sin movimientos de stock" message="Registra la primera entrada, salida o ajuste de material." onAdd={() => setModalOpen(true)} addLabel="Registrar Movimiento" />
+      ) : (
+        <div style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 16, overflow: "hidden" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "150px 140px 1fr 120px 120px 180px", padding: "14px 18px", borderBottom: "1px solid rgba(255,255,255,0.08)", fontSize: 12, fontWeight: 700, color: "rgba(255,255,255,0.4)", letterSpacing: 0.5 }}>
+            <span>FECHA / HORA</span>
+            <span>TIPO</span>
+            <span>MATERIAL</span>
+            <span style={{ textAlign: "right" }}>CANTIDAD</span>
+            <span>LOTE / UBICACIÓN</span>
+            <span>RESPONSABLE</span>
+          </div>
+
+          <div style={{ display: "flex", flexDirection: "column" }}>
+            {filtered.map((m, index) => {
+              const typeConfig = MOVEMENT_TYPES.find((t) => t.value === m.type) || MOVEMENT_TYPES[0];
+              const IconComp = typeConfig.icon;
+              const dateStr = m.timestamp?.toDate ? m.timestamp.toDate().toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }) : "Reciente";
+
+              return (
+                <div key={m.id || index} style={{ display: "grid", gridTemplateColumns: "150px 140px 1fr 120px 120px 180px", padding: "12px 18px", alignItems: "center", borderBottom: index !== filtered.length - 1 ? "1px solid rgba(255,255,255,0.04)" : "none", background: index % 2 === 0 ? "rgba(255,255,255,0.01)" : "transparent", fontSize: 13 }}>
+                  <span style={{ color: "rgba(255,255,255,0.5)", fontSize: 12 }}>{dateStr}</span>
+
+                  <span>
+                    <span style={{ background: typeConfig.bg, color: typeConfig.color, padding: "3px 8px", borderRadius: 6, fontSize: 11, fontWeight: 800, display: "inline-flex", alignItems: "center", gap: 4 }}>
+                      <IconComp size={12} /> {m.type.toUpperCase()}
+                    </span>
+                  </span>
+
+                  <div>
+                    <strong style={{ color: "#fff", display: "block" }}>{m.materialName}</strong>
+                    {m.notes && <span style={{ fontSize: 11, color: "rgba(255,255,255,0.4)" }}>{m.notes}</span>}
+                  </div>
+
+                  <span style={{ textAlign: "right", fontWeight: 800, fontSize: 14, color: m.type === "salida" ? "#FF3B30" : m.type === "entrada" ? "#34C759" : "#007AFF" }}>
+                    {m.type === "salida" ? "-" : m.type === "entrada" ? "+" : ""}{m.quantity} {m.unit || ""}
+                  </span>
+
+                  <div style={{ fontSize: 11, color: "rgba(255,255,255,0.6)" }}>
+                    {m.lot && <div><Tag size={10} style={{ marginRight: 3 }} /> Lote: {m.lot}</div>}
+                    {m.location && <div><MapPin size={10} style={{ marginRight: 3 }} /> Ubic: {m.location}</div>}
+                  </div>
+
+                  <span style={{ color: "rgba(255,255,255,0.5)", fontSize: 12, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {m.createdBy}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Modal Formulario Movimiento */}
+      {modalOpen && <MovementFormModal user={user} materials={materials} onClose={() => setModalOpen(false)} />}
+    </div>
+  );
+}
+
+function KpiCard({ label, value, icon: Icon, accentColor }) {
+  return (
+    <div style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 16, padding: "18px 20px" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <span style={{ fontSize: 13, color: "rgba(255,255,255,0.5)", fontWeight: 600 }}>{label}</span>
+        <div style={{ background: `${accentColor}20`, color: accentColor, padding: 6, borderRadius: 8 }}>
+          <Icon size={18} />
+        </div>
+      </div>
+      <div style={{ fontSize: 32, fontWeight: 800, marginTop: 8, color: "#fff" }}>{value}</div>
+    </div>
+  );
+}
+
+function Chip({ active, onClick, children }) {
+  return (
+    <button onClick={onClick} style={{ background: active ? "#007AFF" : "rgba(255,255,255,0.05)", color: active ? "#fff" : "rgba(255,255,255,0.7)", border: "none", padding: "6px 12px", borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
+      {children}
+    </button>
+  );
+}
+
+function MovementFormModal({ user, materials, onClose }) {
+  const [form, setForm] = useState(emptyForm);
+  const [submitting, setSubmitting] = useState(false);
+
+  const selectedMaterial = useMemo(() => {
+    return materials.find((m) => m.id === form.materialId);
+  }, [materials, form.materialId]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!form.name || !form.sku) return;
+    if (!form.materialId) return alert("Por favor selecciona un material.");
+    const qty = parseFloat(form.quantity);
+    if (isNaN(qty) || qty <= 0) return alert("Ingresa una cantidad válida mayor a 0.");
 
+    setSubmitting(true);
     try {
-      const payload = {
-        name: form.name,
-        sku: form.sku,
-        category: form.category,
-        stock: Number(form.stock) || 0,
-        minStock: Number(form.minStock) || 0,
-        unit: form.unit,
-        updatedAt: serverTimestamp(),
-      };
+      const currentStock = selectedMaterial.stock || 0;
+      let newStock = currentStock;
 
-      if (editingItem) {
-        await updateDoc(doc(db, "materials", editingItem.id), payload);
-        await logActivity(user?.email, "Inventario", "Editar Ítem", `Actualizado: ${form.name}`);
-        addToast("Ítem de inventario actualizado", "success");
-      } else {
-        payload.createdAt = serverTimestamp();
-        await addDoc(collection(db, "materials"), payload);
-        await logActivity(user?.email, "Inventario", "Crear Ítem", `Nuevo ítem: ${form.name}`);
-        addToast("Nuevo ítem registrado en inventario", "success");
+      if (form.type === "entrada") newStock += qty;
+      else if (form.type === "salida") {
+        if (qty > currentStock) {
+          if (!window.confirm("La cantidad a retirar supera el stock actual. ¿Deseas continuar de todos modos?")) {
+            setSubmitting(false);
+            return;
+          }
+        }
+        newStock -= qty;
+      } else if (form.type === "ajuste") {
+        newStock = qty; // Ajuste fija el stock exacto
       }
 
-      setModalOpen(false);
+      // 1. Actualizar Stock en el catálogo de materiales
+      await updateDoc(doc(db, "inventory_materials", form.materialId), {
+        stock: newStock,
+        updatedAt: serverTimestamp(),
+      });
+
+      // 2. Registrar la transacción en el kardex de movimientos
+      const movementPayload = {
+        materialId: form.materialId,
+        materialName: selectedMaterial.name,
+        unit: selectedMaterial.unit || "",
+        type: form.type,
+        quantity: qty,
+        previousStock: currentStock,
+        newStock,
+        lot: form.lot || "",
+        location: form.location || "",
+        notes: form.notes || "",
+        createdBy: user.email,
+        timestamp: serverTimestamp(),
+      };
+
+      await addDoc(collection(db, "inventory_movements"), movementPayload);
+
+      // 3. Auditoría global
+      logActivity(user.email, "Inventario", `Movimiento de ${form.type.toUpperCase()}`, `${selectedMaterial.name}: ${form.type === 'salida' ? '-' : '+'}${qty} ${selectedMaterial.unit || ''}`);
+
+      onClose();
     } catch (err) {
-      console.error(err);
-      addToast("Error al guardar en inventario", "error");
+      alert(err.message || "Error al registrar el movimiento.");
+    } finally {
+      setSubmitting(false);
     }
-  };
-
-  const handleDelete = async () => {
-    if (!deleteId) return;
-    try {
-      await deleteDoc(doc(db, "materials", deleteId));
-      await logActivity(user?.email, "Inventario", "Eliminar Ítem", `Eliminado ID: ${deleteId}`);
-      addToast("Ítem eliminado del inventario", "info");
-      setDeleteId(null);
-    } catch (err) {
-      console.error(err);
-      addToast("Error al eliminar el ítem", "error");
-    }
-  };
-
-  const filteredItems = items.filter(
-    (item) =>
-      item.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      item.sku?.toLowerCase().includes(searchTerm.toLowerCase())
-  );
-
-  const handleExportPDF = () => {
-    const headers = ["Nombre", "SKU", "Categoría", "Stock", "Mínimo", "Unidad"];
-    const rows = filteredItems.map((i) => [i.name, i.sku, i.category, i.stock, i.minStock, i.unit]);
-    exportToPdf("Reporte General de Inventario", headers, rows, "inventario-planta");
   };
 
   return (
-    <div>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, flexWrap: "wrap", gap: 10 }}>
-        <h1 style={{ fontFamily: "'Oswald', sans-serif", fontSize: 22, textTransform: "uppercase", margin: 0 }}>
-          Control de Inventario y Materiales
-        </h1>
-        <div style={{ display: "flex", gap: 8 }}>
-          <button onClick={() => exportToCsv("inventario", filteredItems)} style={ghostButtonStyle}>
-            <Download size={14} /> CSV
-          </button>
-          <button onClick={handleExportPDF} style={ghostButtonStyle}>
-            <FileText size={14} color={COLORS.steel} /> PDF
-          </button>
-          <button onClick={openCreateModal} style={primaryButtonStyle}>
-            <Plus size={16} /> Nuevo Ítem
+    <ModalShell title="Registrar Movimiento de Inventario" onClose={onClose}>
+      <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+        <Field label="Seleccionar Material">
+          <select value={form.materialId} onChange={(e) => setForm({ ...form, materialId: e.target.value })} style={inputStyle} required>
+            <option value="">-- Selecciona un ítem --</option>
+            {materials.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.name} (Stock Actual: {m.stock || 0} {m.unit || ""})
+              </option>
+            ))}
+          </select>
+        </Field>
+
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+          <Field label="Tipo de Movimiento">
+            <select value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value })} style={inputStyle}>
+              {MOVEMENT_TYPES.map((t) => (
+                <option key={t.value} value={t.value}>{t.label}</option>
+              ))}
+            </select>
+          </Field>
+          <Field label={form.type === "ajuste" ? "Stock Final Ajustado" : "Cantidad"}>
+            <input type="number" step="any" value={form.quantity} onChange={(e) => setForm({ ...form, quantity: e.target.value })} placeholder="0.00" style={inputStyle} required />
+          </Field>
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+          <Field label="Nº Lote (Opcional)">
+            <input value={form.lot} onChange={(e) => setForm({ ...form, lot: e.target.value })} placeholder="Ej: L-2026-004" style={inputStyle} />
+          </Field>
+          <Field label="Ubicación Física (Pasillo/Rack)">
+            <input value={form.location} onChange={(e) => setForm({ ...form, location: e.target.value })} placeholder="Ej: Estante B2-4" style={inputStyle} />
+          </Field>
+        </div>
+
+        <Field label="Notas / Motivo">
+          <textarea value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} placeholder="Ingresa detalles sobre la recepción, orden de compra o consumo..." style={{ ...inputStyle, minHeight: 60 }} />
+        </Field>
+
+        <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 12 }}>
+          <button type="button" onClick={onClose} style={ghostButtonStyle}>Cancelar</button>
+          <button type="submit" disabled={submitting} style={primaryButtonStyle}>
+            {submitting ? "Guardando..." : "Confirmar Movimiento"}
           </button>
         </div>
-      </div>
-
-      <div style={{ marginBottom: 16, position: "relative" }}>
-        <Search size={16} color={COLORS.textMuted} style={{ position: "absolute", left: 12, top: 12 }} />
-        <input
-          value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
-          placeholder="Buscar por código SKU o nombre de material..."
-          style={{ ...inputStyle, paddingLeft: 36 }}
-        />
-      </div>
-
-      {loading ? (
-        <CenteredMessage text="Cargando inventario..." />
-      ) : filteredItems.length === 0 ? (
-        <EmptyState Icon={Boxes} title="Sin ítems registrados" message="Agrega materias primas o insumos para controlar stock." onAdd={openCreateModal} addLabel="Agregar Ítem" />
-      ) : (
-        <div style={{ background: COLORS.panel, border: `1px solid ${COLORS.border}`, borderRadius: 8, overflow: "hidden" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", textAlign: "left", fontSize: 13 }}>
-            <thead>
-              <tr style={{ background: "#0e141c", borderBottom: `1px solid ${COLORS.border}`, color: COLORS.textMuted }}>
-                <th style={{ padding: 12 }}>MATERIAL</th>
-                <th style={{ padding: 12 }}>SKU</th>
-                <th style={{ padding: 12 }}>CATEGORÍA</th>
-                <th style={{ padding: 12 }}>STOCK</th>
-                <th style={{ padding: 12, textAlign: "right" }}>ACCIONES</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredItems.map((item) => {
-                const isLowStock = Number(item.stock) <= Number(item.minStock);
-                return (
-                  <tr key={item.id} style={{ borderBottom: `1px solid ${COLORS.border}` }}>
-                    <td style={{ padding: 12, fontWeight: 600 }}>{item.name}</td>
-                    <td style={{ padding: 12, color: COLORS.textMuted, fontFamily: "monospace" }}>{item.sku}</td>
-                    <td style={{ padding: 12 }}>{item.category}</td>
-                    <td style={{ padding: 12 }}>
-                      <span style={{ fontWeight: 700, color: isLowStock ? COLORS.critical : COLORS.green }}>
-                        {item.stock} {item.unit}
-                      </span>
-                      {isLowStock && (
-                        <span style={{ marginLeft: 6, fontSize: 10, color: COLORS.critical, display: "inline-flex", alignItems: "center", gap: 2 }}>
-                          <AlertTriangle size={12} /> Stock Bajo
-                        </span>
-                      )}
-                    </td>
-                    <td style={{ padding: 12, textAlign: "right" }}>
-                      <button onClick={() => openEditModal(item)} style={{ background: "none", border: "none", color: COLORS.steel, cursor: "pointer", marginRight: 8 }}>
-                        <Edit size={16} />
-                      </button>
-                      <button onClick={() => setDeleteId(item.id)} style={{ background: "none", border: "none", color: COLORS.critical, cursor: "pointer" }}>
-                        <Trash2 size={16} />
-                      </button>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
-
-      {/* MODAL CREAR / EDITAR */}
-      {modalOpen && (
-        <ModalShell title={editingItem ? "Editar Material" : "Agregar Nuevo Material"} onClose={() => setModalOpen(false)}>
-          <form onSubmit={handleSubmit}>
-            <Field label="NOMBRE DEL MATERIAL">
-              <input required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} style={inputStyle} placeholder="Ej. Resina Polietileno" />
-            </Field>
-            <Field label="CÓDIGO SKU">
-              <input required value={form.sku} onChange={(e) => setForm({ ...form, sku: e.target.value })} style={inputStyle} placeholder="Ej. MP-001" />
-            </Field>
-            <Field label="CATEGORÍA">
-              <select value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} style={selectStyle}>
-                <option value="Materia Prima">Materia Prima</option>
-                <option value="Empaque">Empaque</option>
-                <option value="Repuesto">Repuesto Mantenimiento</option>
-                <option value="Insumo General">Insumo General</option>
-              </select>
-            </Field>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
-              <Field label="STOCK ACTUAL">
-                <input type="number" required value={form.stock} onChange={(e) => setForm({ ...form, stock: e.target.value })} style={inputStyle} />
-              </Field>
-              <Field label="STOCK MÍNIMO">
-                <input type="number" required value={form.minStock} onChange={(e) => setForm({ ...form, minStock: e.target.value })} style={inputStyle} />
-              </Field>
-              <Field label="UNIDAD">
-                <select value={form.unit} onChange={(e) => setForm({ ...form, unit: e.target.value })} style={selectStyle}>
-                  <option value="Kg">Kg</option>
-                  <option value="Lts">Lts</option>
-                  <option value="Unid">Unid</option>
-                  <option value="Mts">Mts</option>
-                </select>
-              </Field>
-            </div>
-            <button type="submit" style={{ ...primaryButtonStyle, width: "100%", justifyContent: "center", marginTop: 10 }}>
-              Guardar Ítem
-            </button>
-          </form>
-        </ModalShell>
-      )}
-
-      {/* CONFIRMAR ELIMINAR */}
-      {deleteId && (
-        <ConfirmDialog
-          title="Eliminar Material"
-          message="¿Seguro que deseas eliminar este material del inventario? Esta acción no se puede deshacer."
-          onConfirm={handleDelete}
-          onCancel={() => setDeleteId(null)}
-        />
-      )}
-    </div>
+      </form>
+    </ModalShell>
   );
 }
