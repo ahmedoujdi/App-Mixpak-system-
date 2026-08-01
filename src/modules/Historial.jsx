@@ -32,7 +32,7 @@ import {
   inDateRange, 
   DateRangeFilter, 
   formatTimestamp 
-} from "./shared.jsx";
+} from "../shared.jsx";
 
 export default function Historial({ user }) {
   const [logs, setLogs] = useState([]);
