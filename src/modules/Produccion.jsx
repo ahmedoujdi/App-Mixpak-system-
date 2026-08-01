@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { collection, onSnapshot, doc, updateDoc, addDoc, serverTimestamp } from "firebase/firestore";
-import { db } from "./firebase.js";
+import { db } from "../firebase.js";
 import { 
   Factory, 
   Search, 
