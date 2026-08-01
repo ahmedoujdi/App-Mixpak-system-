@@ -33,7 +33,7 @@ import {
   DateRangeFilter, 
   StatusBadge, 
   formatTimestamp 
-} from "./shared.jsx";
+} from "../shared.jsx";
 
 export default function Materiales({ user }) {
   const [boms, setBoms] = useState([]);
