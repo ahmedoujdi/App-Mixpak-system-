@@ -8,7 +8,7 @@ import {
   Bell
 } from "lucide-react";
 
-// IMPORTACIÓN CORREGIDA: Apunta a la carpeta /modules/ y con la P mayúscula
+// IMPORTACIÓN CORREGIDA
 import ProduccionModule from "./modules/Produccion";
 
 // Componente placeholder si aún no subes Mantenimiento o Materiales a GitHub
@@ -152,7 +152,7 @@ export default function App() {
               <Shield size={14} color="#34C759" />
               <span>Planta Enterprise</span>
             </div>
-            <button style={{ background: "transparent", border: "none", color="#fff", cursor: "pointer" }}>
+            <button style={{ background: "transparent", border: "none", color: "#fff", cursor: "pointer" }}>
               <Bell size={16} />
             </button>
           </div>
