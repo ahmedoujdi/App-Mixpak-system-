@@ -28,7 +28,7 @@ import {
   primaryButtonStyle,
   ghostButtonStyle,
   secondaryButtonStyle
-} from "./shared.jsx";
+} from "../shared.jsx";
 
 export default function Dashboard({ user, onNavigate }) {
   const [productionOrders, setProductionOrders] = useState([]);
