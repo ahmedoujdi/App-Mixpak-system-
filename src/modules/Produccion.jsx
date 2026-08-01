@@ -1,11 +1,8 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 // Importaciones de lucide-react o cualquier librería externa que tengas...
 // 🔴 CAMBIA ESTAS LÍNEAS (deben llevar ../ al inicio para salir de la carpeta modules)
 import { db } from "../firebase.js";
-import { formatDate, formatNumber, getStatusBadge } from "../shared.jsx"; // o "../shared"
-// Si importas roles o cualquier otro archivo de /src/:
-// import { PERMISSIONS } from "../roles.js"; 
-// 🟢 TODO LO DEMÁS DE TUS 609 LÍNEAS DÉJALO EXACTAMENTE IGUAL ABAJO.
+import * as SharedComponents from "../shared.jsx"; // Importación segura
 import { collection, onSnapshot, doc, updateDoc, addDoc, serverTimestamp } from "firebase/firestore";
 
 import { 
@@ -26,22 +23,67 @@ import {
   Activity,
   Calendar
 } from "lucide-react";
-import { 
-  primaryButtonStyle, 
-  secondaryButtonStyle, 
-  ghostButtonStyle, 
-  inputStyle, 
-  CenteredMessage, 
-  EmptyState, 
-  ModalShell, 
-  Field, 
-  logActivity, 
-  exportToCsv, 
-  inDateRange, 
-  DateRangeFilter, 
-  StatusBadge, 
-  formatTimestamp 
-} from "../shared.jsx";
+
+// Extraemos las utilidades de shared.jsx con paracaídas de seguridad para evitar crashes
+const primaryButtonStyle = SharedComponents.primaryButtonStyle || { padding: "10px 16px", borderRadius: 8, background: "#007AFF", color: "#fff", border: "none", cursor: "pointer", fontWeight: 700, display: "inline-flex", alignItems: "center", gap: 8 };
+const secondaryButtonStyle = SharedComponents.secondaryButtonStyle || { padding: "10px 16px", borderRadius: 8, background: "rgba(255,255,255,0.1)", color: "#fff", border: "none", cursor: "pointer", fontWeight: 700, display: "inline-flex", alignItems: "center", gap: 8 };
+const ghostButtonStyle = SharedComponents.ghostButtonStyle || { padding: "8px 12px", borderRadius: 8, background: "transparent", color: "rgba(255,255,255,0.7)", border: "1px solid rgba(255,255,255,0.15)", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 8 };
+const inputStyle = SharedComponents.inputStyle || { width: "100%", padding: "10px 14px", borderRadius: 8, background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.15)", color: "#fff", outline: "none", boxSizing: "border-box" };
+
+const CenteredMessage = SharedComponents.CenteredMessage || (({ text }) => <div style={{ padding: 40, textAlign: "center", color: "rgba(255,255,255,0.6)" }}>{text}</div>);
+const EmptyState = SharedComponents.EmptyState || (({ title, message }) => <div style={{ padding: 40, textAlign: "center", color: "rgba(255,255,255,0.5)" }}><h3>{title}</h3><p>{message}</p></div>);
+const ModalShell = SharedComponents.ModalShell || (({ title, onClose, children }) => (
+  <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.8)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }}>
+    <div style={{ background: "#12141D", border: "1px solid rgba(255,255,255,0.1)", padding: 24, borderRadius: 16, width: "100%", maxWidth: 500, maxHeight: "90vh", overflowY: "auto" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 16 }}>
+        <h3 style={{ margin: 0, color: "#fff" }}>{title}</h3>
+        <button onClick={onClose} style={{ background: "none", border: "none", color: "#fff", cursor: "pointer" }}>✕</button>
+      </div>
+      {children}
+    </div>
+  </div>
+));
+
+const Field = SharedComponents.Field || (({ label, children }) => (
+  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+    <label style={{ fontSize: 12, fontWeight: 700, color: "rgba(255,255,255,0.7)" }}>{label}</label>
+    {children}
+  </div>
+));
+
+const logActivity = SharedComponents.logActivity || (async () => {});
+const exportToCsv = SharedComponents.exportToCsv || (() => {});
+const inDateRange = SharedComponents.inDateRange || ((timestamp, from, to) => {
+  if (!from && !to) return true;
+  if (!timestamp) return true;
+  const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
+  if (from && new Date(from) > date) return false;
+  if (to && new Date(to) < date) return false;
+  return true;
+});
+
+const DateRangeFilter = SharedComponents.DateRangeFilter || (({ from, to, onFromChange, onToChange }) => (
+  <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+    <input type="date" value={from} onChange={(e) => onFromChange(e.target.value)} style={{ ...inputStyle, width: "auto" }} />
+    <span style={{ color: "rgba(255,255,255,0.4)" }}>a</span>
+    <input type="date" value={to} onChange={(e) => onToChange(e.target.value)} style={{ ...inputStyle, width: "auto" }} />
+  </div>
+));
+
+const StatusBadge = SharedComponents.StatusBadge || (({ status }) => {
+  const colors = {
+    "Completado": { bg: "rgba(52,199,89,0.15)", text: "#34C759" },
+    "En Proceso": { bg: "rgba(0,122,255,0.15)", text: "#007AFF" },
+    "Pausada": { bg: "rgba(255,149,0,0.15)", text: "#FF9500" },
+    "Pendiente": { bg: "rgba(255,255,255,0.15)", text: "rgba(255,255,255,0.7)" }
+  };
+  const style = colors[status] || colors["Pendiente"];
+  return (
+    <span style={{ background: style.bg, color: style.text, padding: "4px 8px", borderRadius: 6, fontSize: 11, fontWeight: 800 }}>
+      {status}
+    </span>
+  );
+});
 
 export default function Produccion({ user }) {
   const [orders, setOrders] = useState([]);
@@ -79,6 +121,9 @@ export default function Produccion({ user }) {
     const unsub = onSnapshot(collection(db, "production_orders"), (snap) => {
       const docs = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
       setOrders(docs);
+      setLoading(false);
+    }, (err) => {
+      console.error("Firestore error:", err);
       setLoading(false);
     });
     return () => unsub();
