@@ -41,7 +41,7 @@ import {
   DateRangeFilter, 
   StatusBadge, 
   formatTimestamp 
-} from "./shared.jsx";
+} from "../shared.jsx";
 
 export default function Produccion({ user }) {
   const [orders, setOrders] = useState([]);
