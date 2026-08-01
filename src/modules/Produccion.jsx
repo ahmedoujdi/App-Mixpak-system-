@@ -1,6 +1,13 @@
-import React, { useState, useEffect, useMemo } from "react";
-import { collection, onSnapshot, doc, updateDoc, addDoc, serverTimestamp } from "firebase/firestore";
+import React, { useState, useEffect } from "react";
+// Importaciones de lucide-react o cualquier librería externa que tengas...
+// 🔴 CAMBIA ESTAS LÍNEAS (deben llevar ../ al inicio para salir de la carpeta modules)
 import { db } from "../firebase.js";
+import { formatDate, formatNumber, getStatusBadge } from "../shared.jsx"; // o "../shared"
+// Si importas roles o cualquier otro archivo de /src/:
+// import { PERMISSIONS } from "../roles.js"; 
+// 🟢 TODO LO DEMÁS DE TUS 609 LÍNEAS DÉJALO EXACTAMENTE IGUAL ABAJO.
+import { collection, onSnapshot, doc, updateDoc, addDoc, serverTimestamp } from "firebase/firestore";
+
 import { 
   Factory, 
   Search, 
