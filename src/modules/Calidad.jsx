@@ -34,7 +34,7 @@ import {
   DateRangeFilter, 
   StatusBadge, 
   formatTimestamp 
-} from "./shared.jsx";
+} from "../shared.jsx";
 
 export default function Calidad({ user }) {
   const [inspections, setInspections] = useState([]);
