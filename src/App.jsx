@@ -8,9 +8,8 @@ import {
   Bell
 } from "lucide-react";
 
-// 1. IMPORTACIÓN EN MINÚSCULAS Y CON COMPROBACIÓN REPETIDA
-// Si tu archivo en /src/ se llama produccion.jsx, esto cargará sin problemas.
-import ProduccionModule from "./produccion.jsx";
+// IMPORTACIÓN CORREGIDA: Apunta a la carpeta /modules/ y con la P mayúscula
+import ProduccionModule from "./modules/Produccion";
 
 // Componente placeholder si aún no subes Mantenimiento o Materiales a GitHub
 const ComponenteEnDesarrollo = ({ titulo }) => (
@@ -153,7 +152,7 @@ export default function App() {
               <Shield size={14} color="#34C759" />
               <span>Planta Enterprise</span>
             </div>
-            <button style={{ background: "transparent", border: "none", color: "#fff", cursor: "pointer" }}>
+            <button style={{ background: "transparent", border: "none", color="#fff", cursor: "pointer" }}>
               <Bell size={16} />
             </button>
           </div>
